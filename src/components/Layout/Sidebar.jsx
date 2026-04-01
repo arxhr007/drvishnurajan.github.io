@@ -8,7 +8,8 @@ import {
     AlertTriangle,
     Settings,
     Activity,
-    Leaf
+    Leaf,
+    HeartPulse
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -74,6 +75,10 @@ export const Sidebar = ({ activeView = 'dashboard', onNavigate, isOpen, onClose 
                     <NavItem icon={LayoutDashboard} label="Dashboard" active={activeView === 'dashboard'} onClick={() => { onNavigate('dashboard'); onClose?.(); }} />
                     <NavItem icon={MapIcon} label="City Map" active={activeView === 'map'} onClick={() => { onNavigate('map'); onClose?.(); }} />
                     <NavItem icon={Activity} label="Live Monitoring" active={activeView === 'live'} onClick={() => { onNavigate('live'); onClose?.(); }} />
+                    <NavItem icon={Zap} label="Energy Dashboard" active={activeView === 'energy-dashboard'} onClick={() => { onNavigate('energy-dashboard'); onClose?.(); }} />
+                    <NavItem icon={Droplets} label="Water Monitoring" active={activeView === 'water'} onClick={() => { onNavigate('water'); onClose?.(); }} />
+                    <NavItem icon={Leaf} label="Agriculture Dashboard" active={activeView === 'agriculture'} onClick={() => { onNavigate('agriculture'); onClose?.(); }} />
+                    <NavItem icon={HeartPulse} label="Health Dashboard" active={activeView === 'health'} onClick={() => { onNavigate('health'); onClose?.(); }} />
                     <NavItem icon={Leaf} label="Soil Monitoring" active={activeView === 'soil'} onClick={() => { onNavigate('soil'); onClose?.(); }} />
 
                     <div className="mt-8 px-4 pb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">System</div>
