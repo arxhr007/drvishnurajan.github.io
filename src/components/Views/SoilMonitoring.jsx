@@ -45,17 +45,47 @@ const SENSOR_RANGES = {
     Air_Humidity: [30, 90],
 };
 
+const MAX_STEP_RATIO = {
+    Nitrogen: 0.03,
+    Phosphorus: 0.03,
+    Potassium: 0.03,
+    Soil_Moisture_NPK: 0.035,
+    Soil_Temperature: 0.025,
+    Soil_Moisture_Capacitive: 0.035,
+    Analog_Moisture_Value: 0.03,
+    Air_Temperature: 0.025,
+    Air_Humidity: 0.03,
+};
+
 // ── Helper functions ────────────────────────────────────────────────────────
 const rand = (min, max) => Math.round((Math.random() * (max - min) + min) * 10) / 10;
+const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-const generateReading = () => {
+const generateReading = (previous = null) => {
     const r = {};
+
     for (const [key, [min, max]] of Object.entries(SENSOR_RANGES)) {
-        r[key] = key === 'Analog_Moisture_Value' ? Math.round(rand(min, max)) : rand(min, max);
+        const range = max - min;
+
+        if (!previous || typeof previous[key] !== 'number') {
+            r[key] = key === 'Analog_Moisture_Value' ? Math.round(rand(min, max)) : rand(min, max);
+            continue;
+        }
+
+        const prev = previous[key];
+        const target = rand(min, max);
+        const maxStep = range * (MAX_STEP_RATIO[key] || 0.03);
+        const drift = clamp(target - prev, -maxStep, maxStep);
+        const jitter = (Math.random() - 0.5) * (range * 0.005);
+        const next = clamp(prev + drift + jitter, min, max);
+
+        r[key] = key === 'Analog_Moisture_Value' ? Math.round(next) : Math.round(next * 10) / 10;
     }
+
     r.Soil_Moisture_Capacitive = Math.min(85, Math.max(15,
         Math.round((r.Soil_Moisture_NPK + (Math.random() - 0.5) * 6) * 10) / 10
     ));
+
     return r;
 };
 
@@ -131,7 +161,12 @@ export const SoilMonitoring = () => {
     const [dataSource, setDataSource] = useState('simulate'); // 'simulate' | 'firebase'
     const [fbConnected, setFbConnected] = useState(false);
     const intervalRef = useRef(null);
+    const latestReadingRef = useRef(reading);
     const MAX_HISTORY = 30;
+
+    useEffect(() => {
+        latestReadingRef.current = reading;
+    }, [reading]);
 
     // ── Push a reading + prediction to Firebase ─────────────────────────────
     const pushToFirebase = useCallback((sensorData, ideal, current, info) => {
@@ -152,7 +187,8 @@ export const SoilMonitoring = () => {
 
     // ── Simulated tick ──────────────────────────────────────────────────────
     const tick = useCallback(() => {
-        const newReading = generateReading();
+        const newReading = generateReading(latestReadingRef.current);
+        latestReadingRef.current = newReading;
         const ideal = predict(newReading);
         const current = newReading.Soil_Moisture_NPK;
         const info = classify(current, ideal);
@@ -170,7 +206,7 @@ export const SoilMonitoring = () => {
         if (dataSource !== 'simulate') return;
         tick();
         if (isRunning) {
-            intervalRef.current = setInterval(tick, 3000);
+            intervalRef.current = setInterval(tick, 5000);
         }
         return () => clearInterval(intervalRef.current);
     }, [isRunning, tick, dataSource]);
