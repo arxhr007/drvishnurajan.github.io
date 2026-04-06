@@ -6,6 +6,8 @@ import { useAssets } from '../../hooks/useAssets';
 import { formatTimeIST } from '../../utils/timeUtils';
 import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
 
+import { useAuth } from '../../context/AuthContext';
+
 const parseAssetValue = (val) => {
     if (val === undefined || val === null) return { value: 0, unit: '' };
     if (typeof val === 'number') return { value: val, unit: '' };
@@ -20,8 +22,6 @@ const parseAssetValue = (val) => {
     }
     return { value: 0, unit: '' };
 };
-
-import { useAuth } from '../../context/AuthContext';
 
 const AssetDetailView = ({ assetId, onBack }) => {
     const { assets, updateAsset } = useAssets();
@@ -288,10 +288,13 @@ const SensorCard = ({ data, onClick }) => {
             <div className="flex items-end justify-between mt-1">
                 <div>
                     <p className="text-xs text-slate-400 mb-0.5">Reading</p>
-                    <p className="text-lg font-bold text-slate-800">
-                        <p className="text-lg font-bold text-slate-800">
-                            {isNormal ? (Math.abs(data.val || 0)) : <span className="text-slate-400 text-sm font-normal italic">Offline</span>}
-                        </p>                    </p>
+                    <div className="text-lg font-bold text-slate-800">
+                        {isNormal ? (
+                            Math.abs(data.val || 0)
+                        ) : (
+                            <span className="text-slate-400 text-sm font-normal italic">Offline</span>
+                        )}
+                    </div>
                 </div>
                 <div className="text-right">
                     <div className="flex items-center justify-end gap-1 text-xs text-slate-400 mb-0.5">

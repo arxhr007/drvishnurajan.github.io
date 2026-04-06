@@ -77,7 +77,7 @@ export const Sidebar = ({ activeView = 'dashboard', onNavigate, isOpen, onClose 
                     <NavItem icon={Activity} label="Live Monitoring" active={activeView === 'live'} onClick={() => { onNavigate('live'); onClose?.(); }} />
                     <NavItem icon={Zap} label="Energy Dashboard" active={activeView === 'energy-dashboard'} onClick={() => { onNavigate('energy-dashboard'); onClose?.(); }} />
                     <NavItem icon={Droplets} label="Water Monitoring" active={activeView === 'water'} onClick={() => { onNavigate('water'); onClose?.(); }} />
-                    <NavItem icon={Leaf} label="Agriculture Dashboard" active={activeView === 'agriculture'} onClick={() => { onNavigate('agriculture'); onClose?.(); }} />
+                    <NavItem icon={Leaf} label="GRAM-DRISHTI" active={activeView === 'agriculture'} onClick={() => { onNavigate('agriculture'); onClose?.(); }} />
                     <NavItem icon={HeartPulse} label="Health Dashboard" active={activeView === 'health'} onClick={() => { onNavigate('health'); onClose?.(); }} />
                     <NavItem icon={Leaf} label="Soil Monitoring" active={activeView === 'soil'} onClick={() => { onNavigate('soil'); onClose?.(); }} />
 
