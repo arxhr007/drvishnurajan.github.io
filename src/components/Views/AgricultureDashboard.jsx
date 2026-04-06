@@ -6,6 +6,58 @@ import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
 
 const PREDICTION_API_BASE = 'https://aaronthomas123-ice.hf.space';
 
+const CLASS_DESCRIPTIONS = {
+    'Apple___Apple_scab': 'A fungal leaf disease with olive to dark lesions that can reduce photosynthesis and fruit quality when humidity stays high.',
+    'Apple___Black_rot': 'A fungal infection that causes dark leaf and fruit lesions and can spread during warm, wet weather windows.',
+    'Apple___Cedar_apple_rust': 'A rust disease that produces orange spotting and can intensify when alternate host conditions and moisture align.',
+    'Apple___healthy': 'No major disease signature detected in the uploaded sample; canopy appears within normal visual range.',
+    'Blueberry___healthy': 'No visible disease pattern detected for this sample; foliage appears healthy in current image conditions.',
+    'Cherry___healthy': 'No clear disease markers are visible in this image; plant tissue appears normal.',
+    'Cherry___Powdery_mildew': 'A powdery fungal growth often seen as pale coating on leaves, usually favored by humid microclimates.',
+    'Corn___Cercospora_leaf_spot Gray_leaf_spot': 'A leaf spot complex that creates elongated lesions and can lower vigor under sustained moisture stress.',
+    'Corn___Common_rust': 'A rust disease with raised pustules on leaf surfaces, often increasing in moderate temperatures with humidity.',
+    'Corn___healthy': 'No visible disease stress identified; current leaf texture and color appear stable.',
+    'Corn___Northern_Leaf_Blight': 'A fungal blight marked by long gray-green lesions that can expand rapidly under favorable wet conditions.',
+    'Grape___Black_rot': 'A fungal grape disease with dark lesions and fruit rot symptoms, typically associated with warm wet spells.',
+    'Grape___Esca_(Black_Measles)': 'A trunk and foliar disease complex causing patterned discoloration and gradual vine stress progression.',
+    'Grape___healthy': 'No disease pattern stands out in this sample; grape foliage appears visually healthy.',
+    'Grape___Leaf_blight_(Isariopsis_Leaf_Spot)': 'A leaf blight pattern with necrotic spotting that can spread through dense, humid canopy conditions.',
+    'Orange___Haunglongbing_(Citrus_greening)': 'A severe citrus decline disease linked to uneven chlorosis and progressive canopy weakening over time.',
+    'Peach___Bacterial_spot': 'A bacterial spotting condition that can affect leaves and fruit surfaces, especially after splash and wetness events.',
+    'Peach___healthy': 'No significant disease cue is detected from this image; tissue appears within healthy visual bounds.',
+    'Pepper,_bell___Bacterial_spot': 'A bacterial spotting pattern with small dark lesions and yellow halos, commonly seen in humid field periods.',
+    'Pepper,_bell___healthy': 'No disease-like lesion pattern is strongly indicated in the uploaded pepper leaf image.',
+    'Potato___Early_blight': 'A foliar blight with concentric lesion rings that usually appears under alternating warm and humid conditions.',
+    'Potato___healthy': 'No dominant disease symptom is detected in this sample; leaf structure appears stable.',
+    'Potato___Late_blight': 'A fast-moving blight risk marked by water-soaked to dark lesions and high spread potential in wet weather.',
+    'Raspberry___healthy': 'No visible disease expression is identified in this frame; foliage appears healthy.',
+    'Soybean___healthy': 'No major disease pattern detected in the current soybean sample image.',
+    'Squash___Powdery_mildew': 'A powdery fungal disease that forms white patches on leaves and can suppress plant productivity.',
+    'Strawberry___healthy': 'No clear foliar disease markers are visible in this strawberry sample.',
+    'Strawberry___Leaf_scorch': 'A leaf scorch pattern showing darkened tissue margins that may expand under persistent stress.',
+    'Tomato___Bacterial_spot': 'A bacterial spotting condition seen as dark, water-soaked lesions and foliage specking in humid phases.',
+    'Tomato___Early_blight': 'A common tomato blight with concentric rings on older leaves and progressive lower-canopy decline.',
+    'Tomato___healthy': 'No strong disease indicators found; tomato leaf features are currently within healthy range.',
+    'Tomato___Late_blight': 'A severe tomato blight with rapid lesion expansion in cool-wet windows and high outbreak potential.',
+    'Tomato___Leaf_Mold': 'A humidity-driven leaf mold condition with yellowing and underside fungal growth in dense canopy air.',
+    'Tomato___Septoria_leaf_spot': 'A spotting disease with many small lesions that can cause major defoliation if unmanaged.',
+    'Tomato___Spider_mites Two-spotted_spider_mite': 'A mite-related stress pattern causing stippling and webbing-like injury with progressive leaf damage.',
+    'Tomato___Target_Spot': 'A fungal target spot disease with circular lesions that can intensify under warm and moist conditions.',
+    'Tomato___Tomato_mosaic_virus': 'A viral mosaic pattern producing mottling and growth irregularity that affects leaf vigor.',
+    'Tomato___Tomato_Yellow_Leaf_Curl_Virus': 'A viral leaf curl syndrome with yellowing and curling that can significantly reduce plant productivity.',
+    'No leaf detected': 'The model could not detect a clear leaf region. Capture a sharper leaf-focused image with better lighting and less background clutter.'
+};
+
+const prettifyClassName = (raw = '') => {
+    const [cropPart = '', diseasePart = raw] = String(raw).split('___');
+    const cropName = cropPart.replace(/,_/g, ' ').replace(/_/g, ' ').trim();
+    const diseaseName = diseasePart.replace(/_/g, ' ').replace(/\s+/g, ' ').trim();
+    return {
+        cropName,
+        diseaseName: diseaseName || raw
+    };
+};
+
 const dashboardTrend = [
     { time: '06:00', health: 76, risk: 34, confidence: 81, alerts: 1 },
     { time: '09:00', health: 78, risk: 38, confidence: 84, alerts: 1 },
@@ -482,25 +534,43 @@ export const AgricultureDashboard = () => {
                     {predictionResult?.prediction ? (
                         <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
                                             <div className={`rounded-xl p-4 lg:col-span-1 border ${predictionResult.rejected ? 'border-amber-200 bg-amber-50' : 'border-green-200 bg-green-50'}`}>
-                                                <p className={`text-xs uppercase tracking-wider font-semibold ${predictionResult.rejected ? 'text-amber-700' : 'text-green-700'}`}>
-                                                    {predictionResult.rejected ? 'Rejection notice' : 'Top prediction'}
-                                                </p>
-                                                <p className={`mt-2 text-lg font-bold ${predictionResult.rejected ? 'text-amber-900' : 'text-green-900'}`}>
-                                                    {predictionResult.prediction.class_name}
-                                                </p>
-                                                <p className={`mt-1 text-sm ${predictionResult.rejected ? 'text-amber-800' : 'text-green-800'}`}>
-                                                    Confidence: {(Number(predictionResult.prediction.confidence || 0) * 100).toFixed(2)}%
-                                                </p>
-                                                {predictionResult.rejected ? (
-                                                    <p className="mt-2 text-sm text-amber-800">
-                                                        We could not detect a clear leaf in this image. Please upload a clearer leaf photo.
-                                                    </p>
-                                                ) : null}
-                                                {predictionResult.reject_reason ? (
-                                                    <p className="mt-2 text-xs text-amber-700 font-semibold uppercase tracking-wider">
-                                                        Reject reason: {predictionResult.reject_reason}
-                                                    </p>
-                                                ) : null}
+                                                {(() => {
+                                                    const topClass = predictionResult.prediction.class_name;
+                                                    const { cropName, diseaseName } = prettifyClassName(topClass);
+                                                    const description = CLASS_DESCRIPTIONS[topClass] || 'Prediction generated by the vision model for this uploaded sample.';
+
+                                                    return (
+                                                        <>
+                                                            <p className={`text-xs uppercase tracking-wider font-semibold ${predictionResult.rejected ? 'text-amber-700' : 'text-green-700'}`}>
+                                                                {predictionResult.rejected ? 'Rejection notice' : 'Top prediction'}
+                                                            </p>
+                                                            <p className={`mt-2 text-lg font-bold ${predictionResult.rejected ? 'text-amber-900' : 'text-green-900'}`}>
+                                                                {diseaseName}
+                                                            </p>
+                                                            {!predictionResult.rejected && cropName ? (
+                                                                <p className="mt-1 text-xs font-semibold uppercase tracking-wider text-slate-600">
+                                                                    Mainly observed in: {cropName}
+                                                                </p>
+                                                            ) : null}
+                                                            <p className={`mt-1 text-sm ${predictionResult.rejected ? 'text-amber-800' : 'text-green-800'}`}>
+                                                                Confidence: {(Number(predictionResult.prediction.confidence || 0) * 100).toFixed(2)}%
+                                                            </p>
+                                                            <p className={`mt-2 text-sm ${predictionResult.rejected ? 'text-amber-800' : 'text-slate-700'}`}>
+                                                                {description}
+                                                            </p>
+                                                            {predictionResult.rejected ? (
+                                                                <p className="mt-2 text-sm text-amber-800">
+                                                                    We could not detect a clear leaf in this image. Please upload a clearer leaf photo.
+                                                                </p>
+                                                            ) : null}
+                                                            {predictionResult.reject_reason ? (
+                                                                <p className="mt-2 text-xs text-amber-700 font-semibold uppercase tracking-wider">
+                                                                    Reject reason: {predictionResult.reject_reason}
+                                                                </p>
+                                                            ) : null}
+                                                        </>
+                                                    );
+                                                })()}
                                             </div>
 
                                             {!predictionResult.rejected ? (
