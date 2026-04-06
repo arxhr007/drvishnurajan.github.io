@@ -1,6 +1,6 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
-import { Activity, AlertTriangle, ArrowRight, CheckCircle2, Droplets, Eye, Flame, ImagePlus, MapPinned, Mic, Shield, Sprout, TimerReset, TriangleAlert, Wind, Wifi, Zap } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowRight, Camera, CameraOff, CheckCircle2, Droplets, Eye, Flame, ImagePlus, MapPinned, Mic, Shield, Sprout, TimerReset, TriangleAlert, Wind, Wifi, Zap } from 'lucide-react';
 import { DashboardCard } from '../Shared/DashboardCard';
 import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
 
@@ -150,9 +150,18 @@ const toneStyles = {
 };
 
 export const AgricultureDashboard = () => {
+    const videoRef = useRef(null);
+    const canvasRef = useRef(null);
+    const streamRef = useRef(null);
+    const previewUrlRef = useRef('');
+
     const [uploadedLeafFile, setUploadedLeafFile] = useState(null);
     const [uploadedLeafName, setUploadedLeafName] = useState('No leaf image uploaded yet');
     const [isPredictingLeaf, setIsPredictingLeaf] = useState(false);
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+    const [isCameraStarting, setIsCameraStarting] = useState(false);
+    const [cameraError, setCameraError] = useState('');
+    const [capturedPreview, setCapturedPreview] = useState('');
     const [predictionError, setPredictionError] = useState('');
     const [predictionResult, setPredictionResult] = useState(null);
 
@@ -165,9 +174,130 @@ export const AgricultureDashboard = () => {
         if (file) {
             setUploadedLeafFile(file);
             setUploadedLeafName(file.name);
+            setCapturedPreview('');
             setPredictionError('');
             setPredictionResult(null);
         }
+    };
+
+    const clearCameraStream = () => {
+        if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track) => track.stop());
+            streamRef.current = null;
+        }
+
+        if (videoRef.current) {
+            videoRef.current.srcObject = null;
+        }
+    };
+
+    useEffect(() => {
+        if (!isCameraOpen) {
+            clearCameraStream();
+            return undefined;
+        }
+
+        let isMounted = true;
+        setCameraError('');
+        setIsCameraStarting(true);
+
+        const startCamera = async () => {
+            try {
+                if (!navigator.mediaDevices?.getUserMedia) {
+                    throw new Error('Camera access is not supported in this browser.');
+                }
+
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+                if (!isMounted) {
+                    stream.getTracks().forEach((track) => track.stop());
+                    return;
+                }
+
+                streamRef.current = stream;
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                    await videoRef.current.play();
+                }
+            } catch (error) {
+                if (isMounted) {
+                    setCameraError(error?.message || 'Unable to open camera.');
+                    setIsCameraOpen(false);
+                }
+            } finally {
+                if (isMounted) {
+                    setIsCameraStarting(false);
+                }
+            }
+        };
+
+        startCamera();
+
+        return () => {
+            isMounted = false;
+            clearCameraStream();
+        };
+    }, [isCameraOpen]);
+
+    useEffect(() => {
+        return () => {
+            if (previewUrlRef.current) {
+                URL.revokeObjectURL(previewUrlRef.current);
+            }
+            clearCameraStream();
+        };
+    }, []);
+
+    const openCamera = () => {
+        setPredictionError('');
+        setCameraError('');
+        setIsCameraOpen(true);
+    };
+
+    const closeCamera = () => {
+        setIsCameraOpen(false);
+        setIsCameraStarting(false);
+        setCameraError('');
+        clearCameraStream();
+    };
+
+    const capturePhoto = async () => {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+
+        if (!video || !canvas) {
+            setCameraError('Camera is not ready yet.');
+            return;
+        }
+
+        const width = video.videoWidth || 1280;
+        const height = video.videoHeight || 720;
+
+        canvas.width = width;
+        canvas.height = height;
+        const context = canvas.getContext('2d');
+        context.drawImage(video, 0, 0, width, height);
+
+        canvas.toBlob((blob) => {
+            if (!blob) {
+                setCameraError('Could not capture image from camera.');
+                return;
+            }
+
+            const file = new File([blob], `leaf-capture-${Date.now()}.png`, { type: 'image/png' });
+            const nextPreviewUrl = URL.createObjectURL(blob);
+
+            if (previewUrlRef.current) {
+                URL.revokeObjectURL(previewUrlRef.current);
+            }
+            previewUrlRef.current = nextPreviewUrl;
+
+            setUploadedLeafFile(file);
+            setUploadedLeafName(file.name);
+            setCapturedPreview(nextPreviewUrl);
+            setPredictionError('');
+            setPredictionResult(null);
+            setIsCameraOpen(false);
+        }, 'image/png', 0.95);
     };
 
     const runLeafPrediction = async () => {
@@ -246,16 +376,72 @@ export const AgricultureDashboard = () => {
 
                     <div className="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
                         <div className="lg:col-span-2 rounded-xl border border-dashed border-blue-200 bg-white/90 p-4">
-                            <label className="flex flex-col items-center justify-center gap-3 cursor-pointer text-center min-h-[11rem]">
-                                <div className="w-14 h-14 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
-                                    <ImagePlus size={22} />
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                    <label className="flex flex-col items-center justify-center gap-3 cursor-pointer text-center min-h-[9rem]">
+                                        <div className="w-14 h-14 rounded-full bg-blue-50 border border-blue-100 flex items-center justify-center text-blue-600">
+                                            <ImagePlus size={22} />
+                                        </div>
+                                        <div>
+                                            <p className="text-base font-semibold text-slate-800">Upload a leaf picture</p>
+                                            <p className="text-sm text-slate-500 mt-1">Use a file from your device.</p>
+                                        </div>
+                                        <input type="file" accept="image/*" className="hidden" onChange={handleLeafUpload} />
+                                    </label>
                                 </div>
-                                <div>
-                                    <p className="text-base font-semibold text-slate-800">Upload a leaf picture</p>
-                                    <p className="text-sm text-slate-500 mt-1">The AI/ML checker will analyze the leaf image and predict disease status.</p>
+
+                                <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                                    <div className="flex items-center gap-2 text-slate-700 font-semibold text-sm uppercase tracking-wider">
+                                        <Camera size={16} />
+                                        Camera capture
+                                    </div>
+                                    <p className="mt-2 text-sm text-slate-600">Open the camera, take a leaf photo, and upload it instantly.</p>
+                                    <div className="mt-4 flex flex-wrap gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={openCamera}
+                                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+                                        >
+                                            <Camera size={16} />
+                                            Open Camera
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={closeCamera}
+                                            className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+                                        >
+                                            <CameraOff size={16} />
+                                            Close Camera
+                                        </button>
+                                    </div>
+                                    {cameraError ? (
+                                        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                                            {cameraError}
+                                        </div>
+                                    ) : null}
                                 </div>
-                                <input type="file" accept="image/*" className="hidden" onChange={handleLeafUpload} />
-                            </label>
+                            </div>
+
+                            {isCameraOpen ? (
+                                <div className="mt-4 rounded-xl border border-slate-200 bg-black p-3">
+                                    <div className="flex items-center justify-between gap-2 mb-3">
+                                        <p className="text-xs uppercase tracking-wider text-slate-200 font-semibold">Live camera preview</p>
+                                        <p className="text-xs text-slate-300">{isCameraStarting ? 'Starting camera...' : 'Ready to capture'}</p>
+                                    </div>
+                                    <video ref={videoRef} className="w-full rounded-lg bg-black aspect-video object-cover" playsInline muted autoPlay />
+                                    <div className="mt-3 flex justify-end gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={capturePhoto}
+                                            disabled={isCameraStarting}
+                                            className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                                        >
+                                            Capture Photo
+                                        </button>
+                                    </div>
+                                    <canvas ref={canvasRef} className="hidden" />
+                                </div>
+                            ) : null}
                         </div>
 
                         <div className="rounded-xl border border-slate-200 bg-white p-4 flex flex-col justify-between">
@@ -263,6 +449,12 @@ export const AgricultureDashboard = () => {
                                 <p className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Selected file</p>
                                 <p className="mt-2 text-sm font-bold text-slate-800 break-words">{uploadedLeafName}</p>
                             </div>
+
+                            {capturedPreview ? (
+                                <div className="mt-3 rounded-xl overflow-hidden border border-slate-200 bg-white">
+                                    <img src={capturedPreview} alt="Captured leaf preview" className="w-full h-40 object-cover" />
+                                </div>
+                            ) : null}
 
                             <div className="mt-4 space-y-3">
                                 <button
