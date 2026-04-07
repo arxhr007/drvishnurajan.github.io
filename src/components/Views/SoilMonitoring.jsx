@@ -18,7 +18,6 @@ const MODEL_COEFFICIENTS = {
     Nitrogen: 0.1360,
     Phosphorus: 0.0983,
     Potassium: 0.0953,
-    Soil_Moisture_NPK: 0.2573,
     Soil_Temperature: -0.2675,
     Soil_Moisture_Capacitive: -0.0290,
     Analog_Moisture_Value: 0.0046,
@@ -37,7 +36,6 @@ const SENSOR_RANGES = {
     Nitrogen: [10, 80],
     Phosphorus: [10, 60],
     Potassium: [10, 70],
-    Soil_Moisture_NPK: [20, 80],
     Soil_Temperature: [15, 40],
     Soil_Moisture_Capacitive: [15, 85],
     Analog_Moisture_Value: [300, 900],
@@ -49,7 +47,6 @@ const MAX_STEP_RATIO = {
     Nitrogen: 0.03,
     Phosphorus: 0.03,
     Potassium: 0.03,
-    Soil_Moisture_NPK: 0.035,
     Soil_Temperature: 0.025,
     Soil_Moisture_Capacitive: 0.035,
     Analog_Moisture_Value: 0.03,
@@ -60,6 +57,44 @@ const MAX_STEP_RATIO = {
 // ── Helper functions ────────────────────────────────────────────────────────
 const rand = (min, max) => Math.round((Math.random() * (max - min) + min) * 10) / 10;
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const toNumberOr = (value, fallback = 0) => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : fallback;
+};
+
+const buildCapacitiveMonitors = (baseValue) => {
+    const m1 = Math.round(clamp(baseValue + (Math.random() - 0.5) * 3, 15, 85) * 10) / 10;
+    const m2 = Math.round(clamp(baseValue + (Math.random() - 0.5) * 3, 15, 85) * 10) / 10;
+    const m3 = Math.round(clamp(baseValue + (Math.random() - 0.5) * 3, 15, 85) * 10) / 10;
+    const avg = Math.round(((m1 + m2 + m3) / 3) * 10) / 10;
+    return { m1, m2, m3, avg };
+};
+
+const normalizeReading = (payload = {}) => {
+    const next = { ...payload };
+    const capNode = payload?.Soil_Moisture_Capacitive;
+
+    if (capNode && typeof capNode === 'object') {
+        const m1 = toNumberOr(capNode.monitor_1, 0);
+        const m2 = toNumberOr(capNode.monitor_2, 0);
+        const m3 = toNumberOr(capNode.monitor_3, 0);
+        const avg = toNumberOr(capNode.average, (m1 + m2 + m3) / 3);
+
+        next.Soil_Moisture_Capacitive_M1 = m1;
+        next.Soil_Moisture_Capacitive_M2 = m2;
+        next.Soil_Moisture_Capacitive_M3 = m3;
+        next.Soil_Moisture_Capacitive = Math.round(avg * 10) / 10;
+        return next;
+    }
+
+    const cap = toNumberOr(payload?.Soil_Moisture_Capacitive, 0);
+    next.Soil_Moisture_Capacitive = cap;
+    next.Soil_Moisture_Capacitive_M1 = toNumberOr(payload?.Soil_Moisture_Capacitive_M1, cap);
+    next.Soil_Moisture_Capacitive_M2 = toNumberOr(payload?.Soil_Moisture_Capacitive_M2, cap);
+    next.Soil_Moisture_Capacitive_M3 = toNumberOr(payload?.Soil_Moisture_Capacitive_M3, cap);
+    return next;
+};
 
 const generateReading = (previous = null) => {
     const r = {};
@@ -82,9 +117,16 @@ const generateReading = (previous = null) => {
         r[key] = key === 'Analog_Moisture_Value' ? Math.round(next) : Math.round(next * 10) / 10;
     }
 
-    r.Soil_Moisture_Capacitive = Math.min(85, Math.max(15,
-        Math.round((r.Soil_Moisture_NPK + (Math.random() - 0.5) * 6) * 10) / 10
-    ));
+    // Keep analog moisture roughly aligned with capacitive moisture channel.
+    if (typeof r.Soil_Moisture_Capacitive === 'number') {
+        const cap = buildCapacitiveMonitors(r.Soil_Moisture_Capacitive);
+        r.Soil_Moisture_Capacitive = cap.avg;
+        r.Soil_Moisture_Capacitive_M1 = cap.m1;
+        r.Soil_Moisture_Capacitive_M2 = cap.m2;
+        r.Soil_Moisture_Capacitive_M3 = cap.m3;
+        const mappedAnalog = 900 - (r.Soil_Moisture_Capacitive - 15) * (600 / 70);
+        r.Analog_Moisture_Value = Math.round(clamp(mappedAnalog + (Math.random() - 0.5) * 20, 300, 900));
+    }
 
     return r;
 };
@@ -172,6 +214,12 @@ export const SoilMonitoring = () => {
     const pushToFirebase = useCallback((sensorData, ideal, current, info) => {
         const entry = {
             ...sensorData,
+            Soil_Moisture_Capacitive: {
+                monitor_1: toNumberOr(sensorData.Soil_Moisture_Capacitive_M1, sensorData.Soil_Moisture_Capacitive),
+                monitor_2: toNumberOr(sensorData.Soil_Moisture_Capacitive_M2, sensorData.Soil_Moisture_Capacitive),
+                monitor_3: toNumberOr(sensorData.Soil_Moisture_Capacitive_M3, sensorData.Soil_Moisture_Capacitive),
+                average: toNumberOr(sensorData.Soil_Moisture_Capacitive, 0),
+            },
             ideal_moisture: ideal,
             current_moisture: current,
             status: info.status,
@@ -190,7 +238,7 @@ export const SoilMonitoring = () => {
         const newReading = generateReading(latestReadingRef.current);
         latestReadingRef.current = newReading;
         const ideal = predict(newReading);
-        const current = newReading.Soil_Moisture_NPK;
+        const current = newReading.Soil_Moisture_Capacitive;
         const info = classify(current, ideal);
         setReading(newReading);
         setHistory(prev => {
@@ -220,7 +268,9 @@ export const SoilMonitoring = () => {
         const unsubLatest = onValue(latestRef, (snap) => {
             const data = snap.val();
             if (data) {
-                setReading(data);
+                const normalized = normalizeReading(data);
+                setReading(normalized);
+                latestReadingRef.current = normalized;
                 setFbConnected(true);
             }
         }, () => setFbConnected(false));
@@ -234,7 +284,9 @@ export const SoilMonitoring = () => {
                     .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0))
                     .map(e => ({
                         time: e.time || '',
-                        current: e.current_moisture ?? e.Soil_Moisture_NPK,
+                        current: e.current_moisture
+                            ?? (typeof e.Soil_Moisture_Capacitive === 'object' ? e.Soil_Moisture_Capacitive.average : e.Soil_Moisture_Capacitive)
+                            ?? e.Soil_Moisture_NPK,
                         ideal: e.ideal_moisture,
                         status: e.status,
                     }));
@@ -253,7 +305,10 @@ export const SoilMonitoring = () => {
     };
 
     const ideal = predict(reading);
-    const current = reading.Soil_Moisture_NPK ?? reading.current_moisture ?? 0;
+    const current = reading.Soil_Moisture_Capacitive ?? reading.current_moisture ?? reading.Soil_Moisture_NPK ?? 0;
+    const cap1 = reading.Soil_Moisture_Capacitive_M1 ?? current;
+    const cap2 = reading.Soil_Moisture_Capacitive_M2 ?? current;
+    const cap3 = reading.Soil_Moisture_Capacitive_M3 ?? current;
     const { status, color, recommendation } = classify(current, ideal);
 
     // Nutrient bar chart data
@@ -362,9 +417,10 @@ export const SoilMonitoring = () => {
                 <SensorCard icon={FlaskConical} label="Nitrogen" value={reading.Nitrogen} unit="mg/kg" color="green" />
                 <SensorCard icon={FlaskConical} label="Phosphorus" value={reading.Phosphorus} unit="mg/kg" color="blue" />
                 <SensorCard icon={FlaskConical} label="Potassium" value={reading.Potassium} unit="mg/kg" color="purple" />
-                <SensorCard icon={Droplets} label="Soil Moisture (NPK)" value={reading.Soil_Moisture_NPK} unit="%" color="cyan" />
                 <SensorCard icon={Thermometer} label="Soil Temp" value={reading.Soil_Temperature} unit="°C" color="rose" />
-                <SensorCard icon={Droplets} label="Soil Moisture (Cap)" value={reading.Soil_Moisture_Capacitive} unit="%" color="teal" />
+                <SensorCard icon={Droplets} label="Soil Moisture (Cap-1)" value={cap1} unit="%" color="teal" />
+                <SensorCard icon={Droplets} label="Soil Moisture (Cap-2)" value={cap2} unit="%" color="cyan" />
+                <SensorCard icon={Droplets} label="Soil Moisture (Cap-3)" value={cap3} unit="%" color="blue" />
                 <SensorCard icon={Thermometer} label="Air Temp" value={reading.Air_Temperature} unit="°C" color="amber" />
                 <SensorCard icon={Wind} label="Air Humidity" value={reading.Air_Humidity} unit="%" color="indigo" />
             </div>
