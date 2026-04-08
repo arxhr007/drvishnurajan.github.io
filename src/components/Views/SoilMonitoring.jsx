@@ -83,6 +83,7 @@ const normalizeReading = (payload = {}) => {
     const avg = Math.round(((m1 + m2 + m3) / 3) * 10) / 10;
     const temperature = toNumberOr(getValue('temperature'), 0);
     const humidity = toNumberOr(getValue('humidity'), 0);
+    const ph = toNumberOr(getValue('ph'), 7); // Default neutral pH
 
     const mappedAnalog = 900 - (avg - 15) * (600 / 70);
 
@@ -99,6 +100,7 @@ const normalizeReading = (payload = {}) => {
         Soil_Moisture_Capacitive: avg,
         Analog_Moisture_Value: Math.round(clamp(mappedAnalog, 300, 900)),
         pump: String(getValue('pump') ?? 'off').toLowerCase(),
+        ph,
     };
 };
 
@@ -432,6 +434,7 @@ export const SoilMonitoring = () => {
                 <SensorCard icon={FlaskConical} label="nitrogen" value={reading.Nitrogen} unit="mg/kg" color="green" />
                 <SensorCard icon={FlaskConical} label="phosphorus" value={reading.Phosphorus} unit="mg/kg" color="blue" />
                 <SensorCard icon={FlaskConical} label="potassium" value={reading.Potassium} unit="mg/kg" color="purple" />
+                <SensorCard icon={FlaskConical} label="pH" value={reading.ph} unit="" color="amber" />
                 <SensorCard icon={Droplets} label="pump" value={pumpOn ? 'ON' : 'OFF'} unit="" color={pumpOn ? 'green' : 'amber'} />
             </div>
 
