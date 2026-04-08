@@ -29,6 +29,26 @@ const THRESHOLD = 5;
 
 // ── Firebase paths ──────────────────────────────────────────────────────────
 const FB_LATEST = 'soil_monitoring/latest';
+const LEGACY_LATEST_KEYS = [
+    'Air_Humidity',
+    'Air_Temperature',
+    'Analog_Moisture_Value',
+    'Nitrogen',
+    'Phosphorus',
+    'Potassium',
+    'Soil_Moisture_Capacitive',
+    'Soil_Moisture_NPK',
+    'Soil_Temperature',
+    'current_moisture',
+    'ideal_moisture',
+    'recommendation',
+    'status',
+    'pump_status',
+    'pump_status_time',
+    'pump_updatedAt',
+    'time',
+    'timestamp',
+];
 
 // ── Sensor value ranges ─────────────────────────────────────────────────────
 const SENSOR_RANGES = {
@@ -272,6 +292,14 @@ export const SoilMonitoring = () => {
         const unsubLatest = onValue(latestRef, (snap) => {
             const data = snap.val();
             if (data) {
+                const legacyCleanup = LEGACY_LATEST_KEYS.reduce((acc, key) => {
+                    if (data[key] !== undefined) acc[key] = null;
+                    return acc;
+                }, {});
+                if (Object.keys(legacyCleanup).length > 0) {
+                    update(latestRef, legacyCleanup).catch(console.error);
+                }
+
                 const normalized = normalizeReading(data);
                 setReading(normalized);
                 latestReadingRef.current = normalized;
