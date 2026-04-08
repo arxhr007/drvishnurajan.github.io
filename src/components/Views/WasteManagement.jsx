@@ -31,6 +31,7 @@ import { DashboardCard } from '../Shared/DashboardCard';
 import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
 import {
     WASTE_BIN_SENSORS,
+    WASTE_COLLECTION_METHODS,
     WASTE_COMPOSITION_TREND,
     WASTE_CONTROL_PROFILES,
     WASTE_GENERATION_SERIES,
@@ -97,6 +98,70 @@ const wasteTypeColors = {
     mixed: CPS_PALETTE.amber
 };
 
+const EDGE_NODE_IDS = new Set(['S-01', 'S-03', 'S-06']);
+const MESH_NODE_IDS = new Set(['S-02', 'S-04', 'S-05', 'S-08']);
+
+const CPS_ACTION_LIBRARY = [
+    {
+        id: 'cps-routing',
+        title: 'Dynamic Dispatch Loop',
+        trigger: 'Overflow risk above threshold in priority zone',
+        actuation: 'Re-rank routes and push fleet updates to onboard unit',
+        feedback: 'ETA and overflow risk re-evaluated every 60 seconds'
+    },
+    {
+        id: 'cps-compactor',
+        title: 'Adaptive Compaction Loop',
+        trigger: 'Fill gradient exceeds projected pickup window',
+        actuation: 'Auto-adjust compactor duty cycle with thermal guardrail',
+        feedback: 'Fill and power draw tracked for closed-loop tuning'
+    },
+    {
+        id: 'cps-gas',
+        title: 'Gas and Odor Mitigation Loop',
+        trigger: 'Methane or odor index crosses safety band',
+        actuation: 'Enable scrubber and vent-control sequence',
+        feedback: 'Gas slope monitored until value returns to safe envelope'
+    },
+    {
+        id: 'cps-resource',
+        title: 'Processing Plant Feed Loop',
+        trigger: 'Organic stream exceeds digester feed target',
+        actuation: 'Divert stream to compost/biogas intake schedule',
+        feedback: 'Biogas yield and compost moisture feed next-cycle setpoints'
+    }
+];
+
+const getMonitoringProfile = (binId) => {
+    if (EDGE_NODE_IDS.has(binId)) {
+        return {
+            mode: 'edge',
+            dataSource: 'Direct edge node telemetry',
+            cadence: '10-30 sec',
+            owner: 'Waste control gateway',
+            linkPath: 'DTLS mesh -> MQTT broker'
+        };
+    }
+
+    if (MESH_NODE_IDS.has(binId)) {
+        return {
+            mode: 'mesh',
+            dataSource: 'Cluster mesh telemetry',
+            cadence: '30-90 sec',
+            owner: 'Zone mesh gateway',
+            linkPath: 'LoRa/RS485 mesh -> edge gateway'
+        };
+    }
+
+    return {
+        mode: 'remote',
+        dataSource: 'Remote node telemetry',
+        cadence: '2-4 min',
+        owner: 'Long-range gateway',
+        linkPath: 'LoRaWAN uplink -> gateway bridge'
+    };
+};
+
 export const WasteManagement = () => {
     const [selectedZone, setSelectedZone] = useState('All Zones');
     const [timeWindow, setTimeWindow] = useState('24h');
@@ -121,17 +186,26 @@ export const WasteManagement = () => {
             : WASTE_BIN_SENSORS.filter((bin) => bin.zone === selectedZone);
 
         return scope.map((bin) => {
+            const monitoring = getMonitoringProfile(bin.id);
             const compactionLift = simControls.compactorBoost ? activeProfile.compactionGainPct : 0;
             const scrubberLift = simControls.odorScrubber ? 7 : 0;
+            const baselineMethane = bin.methanePpm;
+            const baselineOdor = bin.odorIndex;
             const adjustedFill = clamp(bin.fillPct - compactionLift * 0.16, 0, 100);
-            const adjustedOdor = clamp(bin.odorIndex - scrubberLift * 0.14, 0, 10);
+            const adjustedOdor = clamp(baselineOdor - scrubberLift * 0.14, 0, 10);
             const adjustedSegregation = clamp(bin.segregationScore + activeProfile.segregationLiftPct, 0, 100);
 
             return {
                 ...bin,
                 fillPct: Number(adjustedFill.toFixed(1)),
+                methanePpm: Number(baselineMethane.toFixed(0)),
                 odorIndex: Number(adjustedOdor.toFixed(1)),
-                segregationScore: Number(adjustedSegregation.toFixed(1))
+                segregationScore: Number(adjustedSegregation.toFixed(1)),
+                monitoringMode: monitoring.mode,
+                dataSource: monitoring.dataSource,
+                verificationCadence: monitoring.cadence,
+                lastVerifiedBy: monitoring.owner,
+                linkPath: monitoring.linkPath
             };
         });
     }, [activeProfile, selectedZone, simControls.compactorBoost, simControls.odorScrubber]);
@@ -189,15 +263,40 @@ export const WasteManagement = () => {
         };
     }, [activeProfile.energyPenaltyPct, filteredBins, latestComposition, routePlan, simControls.aiRouting, simControls.compactorBoost]);
 
-    const sensorStats = useMemo(() => {
+    const monitoringStats = useMemo(() => {
         const online = filteredBins.filter((bin) => bin.connectivity === 'online').length;
+        const offline = filteredBins.length - online;
+        const edge = filteredBins.filter((bin) => bin.monitoringMode === 'edge').length;
+        const delayed = filteredBins.filter((bin) => bin.monitoringMode === 'remote').length;
+
         return {
             online,
-            offline: filteredBins.length - online
+            offline,
+            edge,
+            delayed
         };
     }, [filteredBins]);
 
     const priorityStops = routePlan.priorityStops.slice(0, 6);
+
+    const cpsActionQueue = useMemo(() => {
+        const highestRisk = priorityStops[0];
+        const highGasCount = filteredBins.filter((bin) => (bin.methanePpm || 0) >= 85).length;
+
+        return CPS_ACTION_LIBRARY.map((idea) => {
+            let active = false;
+
+            if (idea.id === 'cps-routing') active = (highestRisk?.risk || 0) >= riskThreshold;
+            if (idea.id === 'cps-compactor') active = simControls.compactorBoost && (kpis.avgFillPct || 0) >= 70;
+            if (idea.id === 'cps-gas') active = simControls.odorScrubber && highGasCount > 0;
+            if (idea.id === 'cps-resource') active = kpis.compostPotentialKg >= 500;
+
+            return {
+                ...idea,
+                active
+            };
+        });
+    }, [filteredBins, kpis.avgFillPct, kpis.compostPotentialKg, priorityStops, riskThreshold, simControls.compactorBoost, simControls.odorScrubber]);
 
     const impactModel = useMemo(() => {
         const overflowReduction = clamp((activeProfile.collectionSpeedGainPct + (simControls.aiRouting ? 5 : 0)) * 1.4, 0, 40);
@@ -220,16 +319,33 @@ export const WasteManagement = () => {
                         Waste Management
                     </h2>
                     <p className="text-sm text-slate-500 mt-1">
-                        Cyber-physical waste orchestration with sensor telemetry, predictive collection routing, and control simulation
+                        Sensor-driven village waste CPS with closed-loop control, predictive dispatch, and process automation
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold uppercase tracking-wider">
-                    <span className="px-2 py-1 rounded-full bg-green-100 text-green-700">{sensorStats.online} sensors online</span>
-                    <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-700">{sensorStats.offline} offline</span>
+                    <span className="px-2 py-1 rounded-full bg-green-100 text-green-700">{monitoringStats.online} nodes online</span>
+                    <span className="px-2 py-1 rounded-full bg-cyan-100 text-cyan-700">{monitoringStats.edge} edge nodes</span>
+                    <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-700">{monitoringStats.delayed} long-range nodes</span>
                 </div>
             </div>
 
             <DemoEncryptionNotice />
+
+            <DashboardCard title="How Village Waste Data Is Collected">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+                    {WASTE_COLLECTION_METHODS.map((method) => (
+                        <div key={method.channel} className="rounded-xl border border-slate-200 bg-white/70 p-3">
+                            <p className="text-sm font-semibold text-slate-800">{method.channel}</p>
+                            <p className="text-xs text-slate-600 mt-1">Coverage: {method.coverage}</p>
+                            <p className="text-xs text-slate-600">Cadence: {method.cadence}</p>
+                            <p className="text-xs text-slate-500 mt-1">Owner: {method.owner}</p>
+                        </div>
+                    ))}
+                </div>
+                <p className="text-xs text-slate-600 mt-3">
+                    Collection and processing are driven by a full sensor mesh: bin nodes, fleet telematics, weighbridge events, and compost/biogas controllers.
+                </p>
+            </DashboardCard>
 
             <DashboardCard title="Operations Console">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3">
@@ -308,7 +424,7 @@ export const WasteManagement = () => {
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                <DashboardCard title="Live Bin Fill and Risk Monitor" className="xl:col-span-2">
+                <DashboardCard title="Bin Fill and Risk Monitor" className="xl:col-span-2">
                     <div className="h-72">
                         <ResponsiveContainer width="100%" height="100%">
                             <BarChart data={filteredBins}>
@@ -393,7 +509,7 @@ export const WasteManagement = () => {
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
-                <DashboardCard title="Sensor Telemetry Monitoring" className="xl:col-span-2">
+                <DashboardCard title="Sensor Telemetry Register" className="xl:col-span-2">
                     <div className="overflow-x-auto">
                         <table className="min-w-full text-sm">
                             <thead>
@@ -401,7 +517,8 @@ export const WasteManagement = () => {
                                     <th className="py-2 pr-3 font-semibold">Bin</th>
                                     <th className="py-2 pr-3 font-semibold">Type</th>
                                     <th className="py-2 pr-3 font-semibold">Fill</th>
-                                    <th className="py-2 pr-3 font-semibold">Methane</th>
+                                    <th className="py-2 pr-3 font-semibold">Source</th>
+                                    <th className="py-2 pr-3 font-semibold">Link Path</th>
                                     <th className="py-2 pr-3 font-semibold">ETA</th>
                                     <th className="py-2 font-semibold">Risk</th>
                                 </tr>
@@ -409,6 +526,11 @@ export const WasteManagement = () => {
                             <tbody>
                                 {filteredBins.map((bin) => {
                                     const risk = calculateOverflowRisk(bin, riskThreshold);
+                                    const sourceTone = bin.monitoringMode === 'edge'
+                                        ? 'bg-green-100 text-green-700 border-green-200'
+                                        : bin.monitoringMode === 'mesh'
+                                            ? 'bg-cyan-100 text-cyan-700 border-cyan-200'
+                                            : 'bg-violet-100 text-violet-700 border-violet-200';
                                     const riskTone = risk >= 85
                                         ? 'bg-red-100 text-red-700 border-red-200'
                                         : risk >= 70
@@ -420,7 +542,12 @@ export const WasteManagement = () => {
                                             <td className="py-2 pr-3 font-medium">{bin.id} ({bin.zone})</td>
                                             <td className="py-2 pr-3 capitalize">{bin.wasteType}</td>
                                             <td className="py-2 pr-3">{bin.fillPct.toFixed(0)}%</td>
-                                            <td className="py-2 pr-3">{bin.methanePpm} ppm</td>
+                                            <td className="py-2 pr-3">
+                                                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${sourceTone}`}>
+                                                    {bin.dataSource}
+                                                </span>
+                                            </td>
+                                            <td className="py-2 pr-3">{bin.linkPath}</td>
                                             <td className="py-2 pr-3">{formatEta(estimateOverflowEtaHours(bin))}</td>
                                             <td className="py-2">
                                                 <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold border ${riskTone}`}>
@@ -450,6 +577,7 @@ export const WasteManagement = () => {
                                         <span>Risk {stop.risk.toFixed(0)}</span>
                                         <span>Distance {stop.distanceFromHubKm.toFixed(1)} km</span>
                                     </div>
+                                    <p className="mt-1 text-[11px] text-slate-500">{stop.dataSource}</p>
                                 </div>
                             ))
                         )}
@@ -457,8 +585,29 @@ export const WasteManagement = () => {
                     <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-3 text-xs text-cyan-800">
                         Fleet route distance: {kpis.routeDistance.toFixed(1)} km • Efficiency: {kpis.routeEfficiency.toFixed(1)}%
                     </div>
+                    <p className="text-[11px] text-slate-500 mt-2">
+                        Route order combines distance, overflow risk, and live fleet telemetry congestion factors.
+                    </p>
                 </DashboardCard>
             </div>
+
+            <DashboardCard title="CPS Closed-Loop Action Ideas">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {cpsActionQueue.map((idea) => (
+                        <div key={idea.id} className="rounded-xl border border-slate-200 bg-white/70 p-4">
+                            <div className="flex items-center justify-between gap-2">
+                                <p className="text-sm font-semibold text-slate-800">{idea.title}</p>
+                                <span className={`inline-flex px-2 py-1 rounded-full text-[11px] font-semibold border ${idea.active ? 'bg-green-100 text-green-700 border-green-200' : 'bg-slate-100 text-slate-700 border-slate-200'}`}>
+                                    {idea.active ? 'Active' : 'Standby'}
+                                </span>
+                            </div>
+                            <p className="text-xs text-slate-600 mt-2"><span className="font-semibold text-slate-700">Trigger:</span> {idea.trigger}</p>
+                            <p className="text-xs text-slate-600 mt-1"><span className="font-semibold text-slate-700">Actuation:</span> {idea.actuation}</p>
+                            <p className="text-xs text-slate-600 mt-1"><span className="font-semibold text-slate-700">Feedback:</span> {idea.feedback}</p>
+                        </div>
+                    ))}
+                </div>
+            </DashboardCard>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                 <DashboardCard title="CPS Control Simulator" className="xl:col-span-2">
@@ -481,8 +630,8 @@ export const WasteManagement = () => {
                             onClick={() => setSimControls((prev) => ({ ...prev, aiRouting: !prev.aiRouting }))}
                             className={`p-4 rounded-xl border text-left transition-colors ${simControls.aiRouting ? 'border-violet-200 bg-violet-50 text-violet-700' : 'border-slate-200 bg-white text-slate-700'}`}
                         >
-                            <div className="flex items-center gap-2 font-semibold text-sm"><Shield size={16} /> AI Route Planning</div>
-                            <p className="text-xs mt-2">Use risk-aware dispatch ordering across all collection vehicles.</p>
+                            <div className="flex items-center gap-2 font-semibold text-sm"><Shield size={16} /> Planner-Assisted Routing</div>
+                            <p className="text-xs mt-2">Blend route suggestions with local field staff inputs before dispatch.</p>
                         </button>
                     </div>
 
@@ -516,12 +665,13 @@ export const WasteManagement = () => {
                                     </span>
                                 </div>
                                 <p className="text-xs text-slate-600 mt-2">{incident.recommendation}</p>
+                                <p className="text-[11px] text-slate-500 mt-1">Source: {incident.source}</p>
                             </div>
                         ))}
                     </div>
                     <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex items-start gap-2">
                         <TriangleAlert size={14} className="mt-0.5" />
-                        System guardrail: auto-escalate when methane exceeds 85 ppm and overflow ETA is below 3h.
+                        Guardrail: escalate if smart-bin methane is above 85 ppm or field teams report overflow ETA below 3h.
                     </div>
                     <div className="mt-2 rounded-xl border border-green-200 bg-green-50 p-3 text-xs text-green-800 flex items-start gap-2">
                         <CheckCircle2 size={14} className="mt-0.5" />

@@ -30,6 +30,8 @@ import {
     BASELINE_SUSTAINABILITY_PROFILE,
     EMISSIONS_BY_SECTOR,
     RESOURCE_COUPLING_SERIES,
+    SUSTAINABILITY_COLLECTION_METHODS,
+    SUSTAINABILITY_METRIC_CONFIDENCE,
     SUSTAINABILITY_ANOMALIES,
     SUSTAINABILITY_SCENARIOS,
     SUSTAINABILITY_TARGETS,
@@ -178,16 +180,61 @@ export const SustainabilityDashboard = () => {
                         Sustainability Dashboard
                     </h2>
                     <p className="text-sm text-slate-500 mt-1">
-                        Integrated village sustainability digital twin with scenario analytics, resilience planning, and cross-domain monitoring
+                        Real-time village sustainability view from feeder, water, and waste sensor networks with cross-domain analytics
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold uppercase tracking-wider">
                     <span className="px-2 py-1 rounded-full bg-green-100 text-green-700">Scenario: {scenario.label}</span>
                     <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-700">Adoption {adoptionPct}%</span>
+                    <span className="px-2 py-1 rounded-full bg-cyan-100 text-cyan-700">Unified sensor mesh</span>
                 </div>
             </div>
 
             <DemoEncryptionNotice />
+
+            <DashboardCard title="How Sustainability Data Is Collected">
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                    <div>
+                        <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Village Data Channels</p>
+                        <div className="space-y-2">
+                            {SUSTAINABILITY_COLLECTION_METHODS.map((method) => (
+                                <div key={method.channel} className="rounded-xl border border-slate-200 bg-white/70 p-3">
+                                    <p className="text-sm font-semibold text-slate-800">{method.channel}</p>
+                                    <p className="text-xs text-slate-600 mt-1">Coverage: {method.coverage}</p>
+                                    <p className="text-xs text-slate-600">Cadence: {method.cadence}</p>
+                                    <p className="text-xs text-slate-500 mt-1">Owner: {method.owner}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div>
+                        <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-2">Metric Confidence</p>
+                        <div className="space-y-2">
+                            {SUSTAINABILITY_METRIC_CONFIDENCE.map((item) => (
+                                <div key={item.metric} className="rounded-xl border border-slate-200 bg-white/70 p-3">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <p className="text-sm font-semibold text-slate-800">{item.metric}</p>
+                                        <span className={`inline-flex px-2 py-1 rounded-full text-[11px] font-semibold border ${
+                                            item.confidence === 'High'
+                                                ? 'bg-green-100 text-green-700 border-green-200'
+                                                : item.confidence === 'Medium'
+                                                    ? 'bg-amber-100 text-amber-700 border-amber-200'
+                                                    : 'bg-slate-100 text-slate-700 border-slate-200'
+                                        }`}>
+                                            {item.confidence}
+                                        </span>
+                                    </div>
+                                    <p className="text-xs text-slate-600 mt-1">{item.sourceMix}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+                <p className="text-xs text-slate-600 mt-3">
+                    Zone-level and system-level scores are computed from continuous sensor streams synchronized through gateway brokers and edge analytics.
+                </p>
+            </DashboardCard>
 
             <DashboardCard title="Sustainability Scenario Console">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
@@ -333,6 +380,15 @@ export const SustainabilityDashboard = () => {
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                 <DashboardCard title="Zone Sustainability Watch" className="xl:col-span-2">
+                    <div className="rounded-xl border border-cyan-200 bg-cyan-50 p-3 mb-3">
+                        <p className="text-xs text-cyan-800 font-semibold uppercase tracking-wider">What Zone Sustainability Means</p>
+                        <p className="text-xs text-cyan-800 mt-1">
+                            Each zone score (0-100) combines Energy Reliability (28%), Water Service Efficiency (24%), Waste Circularity (24%), and Resilience Uptime (24%) from zone sensor feeds.
+                        </p>
+                        <p className="text-[11px] text-cyan-700 mt-1">
+                            Above 75 is healthy, 60-75 needs intervention planning, below 60 requires active control actions.
+                        </p>
+                    </div>
                     <div className="space-y-3">
                         {zoneRows.map((zone) => (
                             <div key={zone.zone} className="rounded-xl border border-slate-200 bg-white/70 p-3">
@@ -396,6 +452,7 @@ export const SustainabilityDashboard = () => {
                             </div>
                             <p className="text-sm font-medium text-slate-800 mt-2">{anomaly.message}</p>
                             <p className="text-xs text-slate-600 mt-2">{anomaly.recommendation}</p>
+                            <p className="text-[11px] text-slate-500 mt-1">Source: {anomaly.source} • Confidence: {anomaly.confidence}</p>
                         </div>
                     ))}
                 </div>
