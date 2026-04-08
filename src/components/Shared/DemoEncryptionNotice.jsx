@@ -20,13 +20,14 @@ export const DemoEncryptionNotice = () => {
                         </span>
                         <span className="inline-flex items-center gap-1 rounded-full border border-cyan-200 bg-cyan-50 px-2 py-0.5 text-[10px] font-semibold text-cyan-700">
                             <Eye size={11} />
-                            Vision Sentinel Online
+                            Link Monitoring Active
                         </span>
                     </div>
 
                     <p className="mt-1 text-sm text-slate-700">
-                        Data at rest and in transit is protected by AES-256-GCM, CRYSTALS-Kyber-768 key encapsulation,
-                        Dilithium-3 signature sealing, and BLAKE3 integrity hashing under the AegisGrid Secure Core.
+                        Sensor-to-sensor links use DTLS 1.3 with rotating device certificates, while sensor-to-dashboard traffic
+                        is tunneled over TLS 1.3 MQTT/HTTPS. Payloads are signed (Ed25519), encrypted (AES-256-GCM), and protected
+                        by anti-replay counters with broker topic ACLs and per-device trust policies.
                     </p>
 
                 </div>

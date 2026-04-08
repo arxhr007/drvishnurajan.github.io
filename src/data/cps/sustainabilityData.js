@@ -100,6 +100,8 @@ export const SUSTAINABILITY_ANOMALIES = [
         zone: 'Market Belt',
         message: 'Evening energy spike coupled with low solar availability.',
         recommendation: 'Shift cold-storage loads by 90 minutes and trigger battery dispatch plan.',
+        source: 'Feeder smart meter stream + inverter gateway feed',
+        confidence: 'medium',
         time: '08:40'
     },
     {
@@ -108,6 +110,8 @@ export const SUSTAINABILITY_ANOMALIES = [
         zone: 'South Habitat',
         message: 'Water reuse loop dropped below projected rate by 14%.',
         recommendation: 'Increase greywater recirculation duty cycle and inspect valve cluster W-2.',
+        source: 'Flow meter telemetry + valve controller diagnostics',
+        confidence: 'high',
         time: '08:18'
     },
     {
@@ -116,6 +120,43 @@ export const SUSTAINABILITY_ANOMALIES = [
         zone: 'Institutional Core',
         message: 'Compost-to-biogas conversion reached efficiency baseline.',
         recommendation: 'Maintain feed consistency and hold digester temperature profile.',
+        source: 'Biogas PLC counters + digester thermal sensors',
+        confidence: 'medium',
         time: '07:56'
     }
+];
+
+export const SUSTAINABILITY_COLLECTION_METHODS = [
+    {
+        channel: 'Smart feeder and pump meters',
+        coverage: 'All energy feeders and water pump clusters',
+        cadence: '30-60 sec stream',
+        owner: 'Grid IoT gateway'
+    },
+    {
+        channel: 'Water tank level and flow sensor mesh',
+        coverage: 'Storage tanks and treatment loops',
+        cadence: '15 sec to 5 min',
+        owner: 'Water SCADA edge node'
+    },
+    {
+        channel: 'Waste node telemetry and weighbridge IoT',
+        coverage: 'Collection points and transfer station',
+        cadence: 'Per event + 1 min heartbeat',
+        owner: 'Waste operations broker'
+    },
+    {
+        channel: 'Weather and air-quality microstations',
+        coverage: 'Habitation and market zones',
+        cadence: '5 min sync',
+        owner: 'Environmental sensor gateway'
+    }
+];
+
+export const SUSTAINABILITY_METRIC_CONFIDENCE = [
+    { metric: 'Energy and Carbon', confidence: 'High', sourceMix: 'Feeder smart meters + utility API' },
+    { metric: 'Water Efficiency', confidence: 'High', sourceMix: 'Flow sensors + tank ultrasonic probes' },
+    { metric: 'Waste Diversion', confidence: 'Medium', sourceMix: 'Bin nodes + weighbridge IoT counters' },
+    { metric: 'Circularity', confidence: 'Medium', sourceMix: 'Material recovery scanner + reuse station counters' },
+    { metric: 'Resilience', confidence: 'Medium', sourceMix: 'Edge uptime telemetry + fault-response event stream' }
 ];

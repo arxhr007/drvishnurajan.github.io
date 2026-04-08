@@ -232,6 +232,7 @@ export const WASTE_INCIDENT_FEED = [
         zone: 'Canteen',
         message: 'Bin S-01 crossed 95% fill and methane exceeded safe threshold.',
         recommendation: 'Dispatch Fleet-1 immediately, enable odor scrubber, and run compactor boost for 5 minutes.',
+        source: 'Bin ultrasonic + gas sensor node',
         time: '08:42'
     },
     {
@@ -240,6 +241,7 @@ export const WASTE_INCIDENT_FEED = [
         zone: 'Market Junction',
         message: 'Pickup SLA risk detected due to high visitor load.',
         recommendation: 'Re-route Fleet-2 before noon and apply dynamic compaction cycle.',
+        source: 'Fleet GPS telemetry + zone occupancy sensors',
         time: '08:15'
     },
     {
@@ -248,6 +250,7 @@ export const WASTE_INCIDENT_FEED = [
         zone: 'Bus Stand',
         message: 'Sensor S-08 connectivity loss for 16 minutes.',
         recommendation: 'Switch to edge-buffer mode and schedule communication module check.',
+        source: 'Gateway link monitor + node heartbeat watchdog',
         time: '07:58'
     },
     {
@@ -256,7 +259,35 @@ export const WASTE_INCIDENT_FEED = [
         zone: 'Clinic',
         message: 'Hazardous waste stream packed and tagged correctly.',
         recommendation: 'Maintain cold chain logistics and route to secure treatment unit.',
+        source: 'Hazard tag reader + sealed-container weight sensor',
         time: '07:31'
+    }
+];
+
+export const WASTE_COLLECTION_METHODS = [
+    {
+        channel: 'Smart bin node mesh (fill, gas, temperature)',
+        coverage: 'All collection points',
+        cadence: '10 sec to 1 min stream',
+        owner: 'Waste IoT edge gateway'
+    },
+    {
+        channel: 'Fleet GPS and fuel telemetry',
+        coverage: 'All collection vehicles',
+        cadence: '5-15 sec stream',
+        owner: 'Route orchestration service'
+    },
+    {
+        channel: 'Material transfer and weighbridge IoT',
+        coverage: 'Transfer station and processing gate',
+        cadence: 'Per dump event + 1 min sync',
+        owner: 'Processing node controller'
+    },
+    {
+        channel: 'Compost/biogas process PLC counters',
+        coverage: 'Composting and digestion units',
+        cadence: '30 sec process loop',
+        owner: 'Plant automation controller'
     }
 ];
 
