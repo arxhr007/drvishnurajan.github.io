@@ -31,10 +31,10 @@ const StatCard = ({ label, value, unit, icon: Icon, tone = 'red' }) => {
 };
 
 const HEALTH_ROWS = [
-    { id: 'P-001', name: 'Vishal ', age: 34, temperature: 98.4, spo2: 99, heartRate: 76, bp: '118/78', symptom: 'None', zone: 'North' },
-    { id: 'P-002', name: 'sankar ', age: 57, temperature: 99.1, spo2: 96, heartRate: 88, bp: '130/84', symptom: 'Mild cough', zone: 'East' },
-    { id: 'P-003', name: 'Kashi ', age: 41, temperature: 100.2, spo2: 94, heartRate: 98, bp: '136/88', symptom: 'Fever', zone: 'South' },
-    { id: 'P-004', name: 'alan V.', age: 23, temperature: 98.1, spo2: 99, heartRate: 71, bp: '112/74', symptom: 'None', zone: 'West' },
+    { id: 'P-001', name: 'Vishal A', age: 34, temperature: 98.4, spo2: 99, heartRate: 76, bp: '118/78', symptom: 'None', zone: 'North' },
+    { id: 'P-002', name: 'Manoj R.', age: 57, temperature: 99.1, spo2: 96, heartRate: 88, bp: '130/84', symptom: 'Mild cough', zone: 'East' },
+    { id: 'P-003', name: 'Lakshmi P.', age: 41, temperature: 100.2, spo2: 94, heartRate: 98, bp: '136/88', symptom: 'Fever', zone: 'South' },
+    { id: 'P-004', name: 'Rahul V.', age: 23, temperature: 98.1, spo2: 99, heartRate: 71, bp: '112/74', symptom: 'None', zone: 'West' },
     { id: 'P-005', name: 'Devika S.', age: 66, temperature: 99.8, spo2: 93, heartRate: 102, bp: '142/90', symptom: 'Breathlessness', zone: 'North' },
     { id: 'P-006', name: 'Nirmal T.', age: 49, temperature: 98.9, spo2: 97, heartRate: 82, bp: '124/80', symptom: 'Headache', zone: 'Central' }
 ];
