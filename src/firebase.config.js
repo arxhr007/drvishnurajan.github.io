@@ -3,15 +3,16 @@ import { initializeApp } from "firebase/app";
 import { getDatabase } from "firebase/database";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";
 
+// For Firebase JS SDK v7.20.0 and later, measurementId is optional
 const firebaseConfig = {
-  apiKey: "AIzaSyDkZ5vLZ952XjrQHDowuWJ8ri9Qh6RbZAg",
-  authDomain: "cps-sahrday.firebaseapp.com",
-  databaseURL: "https://cps-sahrday-default-rtdb.firebaseio.com",
-  projectId: "cps-sahrday",
-  storageBucket: "cps-sahrday.firebasestorage.app",
-  messagingSenderId: "630088664236",
-  appId: "1:630088664236:web:a4713ed6454b178d320b09",
-  measurementId: "G-5HWN4JE4LR"
+  apiKey: "AIzaSyAf9MPruEYJCgWO6hEaVQsYHwgo5ZCDTwU",
+  authDomain: "sahrdayacps.firebaseapp.com",
+  databaseURL: "https://sahrdayacps-default-rtdb.firebaseio.com",
+  projectId: "sahrdayacps",
+  storageBucket: "sahrdayacps.firebasestorage.app",
+  messagingSenderId: "578057227870",
+  appId: "1:578057227870:web:05fe0f83ea4bd27039eecf",
+  measurementId: "G-KXX9VSKPC9"
 };
 
 // Initialize Firebase
