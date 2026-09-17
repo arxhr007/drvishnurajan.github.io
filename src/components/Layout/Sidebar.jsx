@@ -11,7 +11,8 @@ import {
     Leaf,
     HeartPulse,
     Sprout,
-    Trash2
+    Trash2,
+    SquareParking
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -84,6 +85,7 @@ export const Sidebar = ({ activeView = 'dashboard', onNavigate, isOpen, onClose 
                     <NavItem icon={Leaf} label="Agriculture Dashboard" active={activeView === 'agriculture'} onClick={() => { onNavigate('agriculture'); onClose?.(); }} />
                     <NavItem icon={HeartPulse} label="Health Dashboard" active={activeView === 'health'} onClick={() => { onNavigate('health'); onClose?.(); }} />
                     <NavItem icon={Leaf} label="Soil Monitoring" active={activeView === 'soil'} onClick={() => { onNavigate('soil'); onClose?.(); }} />
+                    <NavItem icon={SquareParking} label="Hospital Parking" active={activeView === 'parking'} onClick={() => { onNavigate('parking'); onClose?.(); }} />
 
                     <div className="mt-8 px-4 pb-2 text-xs font-semibold text-slate-600 uppercase tracking-widest">System</div>
                     <NavItem

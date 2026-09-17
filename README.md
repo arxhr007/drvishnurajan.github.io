@@ -273,3 +273,26 @@ toggles are honoured). Options:
     DB_AUTH=<database secret> npm run simulate:sensors   # if rules require auth
 
 Energy values are treated as watt-hours produced or consumed in the last hour.
+
+### Hospital Parking module
+
+**Hospital Parking** (sidebar) shows a live bay map driven by ultrasonic sensors in the sensor database.
+Enter the number of slots, the occupied threshold (cm) and which bay is the ambulance/emergency bay in
+*Parking Setup*; admins can save the setup to `parking/config` so every viewer sees the same layout.
+
+- A bay is **occupied** when its sensor distance is below the threshold (default 60 cm), **free** above it.
+  A bay node may also publish `occupied: true/false` directly.
+- The **emergency bay** raises a red banner (optional audible alarm) and a critical alert on the Overview
+  dashboard whenever it is occupied; otherwise it shows *Free*.
+- Free / occupied / occupancy % / sensors online are counted from the bays that have a reading.
+
+Firmware layout (centimetres):
+
+    parking/slots/1/distance      = 42.5
+    parking/slots/2/distance      = 310.2
+    ...
+    parking/emergency/distance    = 305.0
+
+Any other numeric key whose name contains `ultrasonic`, `distance` or `sonar` (for example the current
+`Agriculture/ultrasonicDistance`) is detected as well and assigned to the next free bay in path order;
+the mapping can be overridden per bay in Parking Setup.

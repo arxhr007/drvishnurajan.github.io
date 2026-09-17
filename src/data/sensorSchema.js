@@ -76,7 +76,7 @@ export const SENSOR_METRICS = [
     },
     {
         key: 'water_level_tank', group: 'water', label: 'Water Level – Tank', unit: '%', icon: 'Cylinder',
-        aliases: ['tank_level', 'tank_water_level', 'water_level_water_tank', 'tank', 'water_tank_level'],
+        aliases: ['tank_level', 'tank_water_level', 'water_level_water_tank', 'tank', 'water_tank_level', 'waterLevel', 'water_level'],
         range: { min: 20, criticalMin: 10, minMsg: 'Tank level low – refill needed' },
         offset: [0.0026, -0.0002], site: 'Overhead tank – north'
     },

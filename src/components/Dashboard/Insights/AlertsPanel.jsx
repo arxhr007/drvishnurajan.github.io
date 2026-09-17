@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertCircle, AlertTriangle, CheckCircle2, Info, BrainCircuit, Gauge } from 'lucide-react';
 import { useVillageInsights } from '../../../hooks/useVillageInsights';
 import { useAssets } from '../../../hooks/useAssets';
+import { useParking } from '../../../hooks/useParking';
 
 const SEVERITY_STYLES = {
     critical: { wrap: 'bg-red-50 border-red-100', icon: 'text-red-500', title: 'text-red-700', text: 'text-red-600/90', chip: 'bg-red-100 text-red-700', Icon: AlertCircle },
@@ -13,12 +14,24 @@ const GROUP_CHIP = {
     agriculture: 'bg-emerald-100 text-emerald-700',
     water: 'bg-cyan-100 text-cyan-700',
     energy: 'bg-amber-100 text-amber-700',
+    parking: 'bg-rose-100 text-rose-700',
     asset: 'bg-slate-100 text-slate-600'
 };
 
 export const AlertsPanel = ({ onNavigate, className = '' }) => {
     const { alerts, village } = useVillageInsights();
     const { assets } = useAssets();
+    const { emergencyOccupied, stats: parkingStats, config: parkingConfig } = useParking();
+
+    const parkingAlerts = emergencyOccupied ? [{
+        id: 'parking-emergency',
+        severity: 'critical',
+        group: 'parking',
+        view: 'parking',
+        title: 'Emergency bay occupied',
+        message: `${parkingConfig.name}: ambulance bay ${parkingStats.emergency?.bay} is blocked (${parkingStats.emergency?.distance ?? '—'} cm). Clear it immediately.`,
+        source: 'threshold'
+    }] : [];
 
     const assetAlerts = assets
         .filter((asset) => asset.status === 'critical' || asset.status === 'warning')
@@ -32,7 +45,7 @@ export const AlertsPanel = ({ onNavigate, className = '' }) => {
             source: 'threshold'
         }));
 
-    const all = [...alerts, ...assetAlerts];
+    const all = [...parkingAlerts, ...alerts, ...assetAlerts];
     const criticalCount = all.filter((a) => a.severity === 'critical').length;
 
     return (
@@ -53,7 +66,7 @@ export const AlertsPanel = ({ onNavigate, className = '' }) => {
                     return (
                         <button
                             key={alert.id}
-                            onClick={() => onNavigate && onNavigate('live', alert.assetId ? { assetId: alert.assetId } : { metricKey: alert.metricKey })}
+                            onClick={() => onNavigate && (alert.view ? onNavigate(alert.view) : onNavigate('live', alert.assetId ? { assetId: alert.assetId } : { metricKey: alert.metricKey }))}
                             className={`w-full text-left flex items-start gap-3 p-3 rounded-xl border transition-all hover:shadow-md active:scale-[0.99] ${style.wrap}`}
                         >
                             <Icon size={18} className={`${style.icon} shrink-0 mt-0.5`} />

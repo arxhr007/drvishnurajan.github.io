@@ -11,6 +11,7 @@ import { HealthDashboard } from './components/Views/HealthDashboard';
 import { WaterSystem } from './components/Views/WaterSystem';
 import { SustainabilityDashboard } from './components/Views/SustainabilityDashboard';
 import { WasteManagement } from './components/Views/WasteManagement';
+import { ParkingDashboard } from './components/Views/ParkingDashboard';
 import { SplashScreen } from './components/Layout/SplashScreen';
 import { AssetsProvider } from './context/AssetsContext';
 import { VillageSensorsProvider } from './context/VillageSensorsContext';
@@ -51,6 +52,7 @@ function AppContent() {
             case 'controls': return <FullMapView initialLayer="controls" showControls={true} onNavigate={handleNavigate} />;
             case 'incidents': return <FullMapView initialLayer="incidents" onNavigate={handleNavigate} />;
             case 'soil': return <SoilMonitoring />;
+            case 'parking': return <ParkingDashboard />;
             case 'settings': return <SystemConfig />;
             default: return <Dashboard onNavigate={handleNavigate} />;
         }
