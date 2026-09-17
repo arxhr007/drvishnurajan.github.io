@@ -23,7 +23,7 @@
 // `{ value, timestamp }` objects. A flat root (no village wrapper) is treated
 // as the default prototype village (Puthenchira).
 // ---------------------------------------------------------------------------
-import { DEFAULT_VILLAGE_ID } from './villages.js';
+import { DEFAULT_VILLAGE_ID, VILLAGES } from './villages.js';
 
 export const SENSOR_GROUPS = [
     { id: 'agriculture', label: 'Agriculture', tone: 'emerald', icon: 'Sprout' },
@@ -38,7 +38,7 @@ export const SENSOR_METRICS = [
     // coordinates of its own.
     {
         key: 'soil_moisture', group: 'agriculture', label: 'Soil Moisture', unit: '%', icon: 'Droplets',
-        aliases: ['soil_moisture_value', 'soilmoisture', 'moisture', 'soil_moisture_1'],
+        aliases: ['soil_moisture_value', 'soilmoisture', 'moisture', 'soil_moisture_1', 'moisture_percent', 'moisturePercent', 'soil_moisture_percent', 'moisture_value', 'soil_moisture_pct'],
         range: { min: 20, max: 80, minMsg: 'Soil is dry – irrigation advised', maxMsg: 'Soil is water-logged' },
         offset: [-0.0018, 0.0022], site: 'Paddy field – east'
     },
@@ -194,7 +194,8 @@ export const parseSensorValue = (metric, raw) => {
 export const parseTimestamp = (raw) => {
     if (raw === null || raw === undefined || raw === '') return null;
     if (typeof raw === 'number') {
-        if (!Number.isFinite(raw) || raw <= 0) return null;
+        // Values below ~2001-09-09 (1e9 s) are device uptime counters, not epoch time
+        if (!Number.isFinite(raw) || raw < 1e9) return null;
         const millis = raw < 1e12 ? raw * 1000 : raw; // epoch seconds vs millis
         const date = new Date(millis);
         return Number.isNaN(date.getTime()) ? null : date;
@@ -268,11 +269,45 @@ export const resolveVillageNode = (root, village) => {
     return null;
 };
 
+const VILLAGE_NAME_KEYS = new Set(VILLAGES.flatMap((v) => [normKey(v.id), normKey(v.name)]));
+const CONTAINER_KEYS = new Set(VILLAGE_CONTAINERS.map(normKey));
+
+/**
+ * All places a village's readings may live, in priority order:
+ *   1. villages/<id>   (or any other container)
+ *   2. <id> at the root
+ *   3. for the prototype village: flat keys at the root (skipping containers
+ *      and other villages), which is how the ESP32 firmware currently writes.
+ * Sources are merged, first match wins per metric.
+ */
+export const resolveVillageSources = (root, village) => {
+    if (!isPlainObject(root)) return [];
+    const sources = [];
+
+    for (const container of VILLAGE_CONTAINERS) {
+        const containerKey = findKeyCI(root, container);
+        if (!containerKey || !isPlainObject(root[containerKey])) continue;
+        const villageKey = findKeyCI(root[containerKey], village.id) || findKeyCI(root[containerKey], village.name);
+        if (villageKey && isPlainObject(root[containerKey][villageKey])) {
+            sources.push({ node: root[containerKey][villageKey], path: `${containerKey}/${villageKey}` });
+        }
+    }
+
+    const villageKey = findKeyCI(root, village.id) || findKeyCI(root, village.name);
+    if (villageKey && isPlainObject(root[villageKey])) sources.push({ node: root[villageKey], path: villageKey });
+
+    if (village.id === DEFAULT_VILLAGE_ID) {
+        sources.push({ node: root, path: '', skip: new Set([...CONTAINER_KEYS, ...VILLAGE_NAME_KEYS]) });
+    }
+    return sources;
+};
+
 /**
  * Flatten a village node into
  * `{ readings: { [metricKey]: { value, raw, path, timestamp?, coords? } }, updatedAt, found, locations, center }`.
+ * `skip` = normalised top-level keys to ignore (used for the flat root source).
  */
-export const normalizeVillageNode = (node, basePath = '') => {
+export const normalizeVillageNode = (node, basePath = '', skip = null) => {
     const readings = {};
     const locations = {};
     let updatedAt = null;
@@ -282,6 +317,7 @@ export const normalizeVillageNode = (node, basePath = '') => {
         if (!isPlainObject(obj)) return;
         for (const [key, raw] of Object.entries(obj)) {
             const nk = normKey(key);
+            if (depth === 0 && skip && skip.has(nk)) continue;
             const childPath = path ? `${path}/${key}` : key;
             const metricKey = METRIC_LOOKUP.get(nk);
 
@@ -328,6 +364,27 @@ export const normalizeVillageNode = (node, basePath = '') => {
 
     visit(node, basePath, 0);
     return { readings, updatedAt, found: Object.keys(readings).length, locations, center };
+};
+
+/** Normalise and merge several sources (see resolveVillageSources); earlier sources win. */
+export const normalizeVillageSources = (sources) => {
+    const merged = { readings: {}, updatedAt: null, found: 0, locations: {}, center: null, path: null, paths: [] };
+    sources.forEach((source) => {
+        const part = normalizeVillageNode(source.node, source.path, source.skip || null);
+        let used = false;
+        Object.entries(part.readings).forEach(([key, entry]) => {
+            if (merged.readings[key] === undefined) { merged.readings[key] = entry; used = true; }
+        });
+        Object.entries(part.locations).forEach(([key, coords]) => {
+            if (!merged.locations[key]) merged.locations[key] = coords;
+        });
+        if (!merged.center && part.center) merged.center = part.center;
+        if (part.updatedAt && (!merged.updatedAt || part.updatedAt > merged.updatedAt)) merged.updatedAt = part.updatedAt;
+        if (used) merged.paths.push(source.path === '' ? '/' : `/${source.path}`);
+    });
+    merged.found = Object.keys(merged.readings).length;
+    merged.path = merged.paths.length ? merged.paths.join(' + ') : null;
+    return merged;
 };
 
 /** Path used when the dashboard has to write a value the node has not published yet. */

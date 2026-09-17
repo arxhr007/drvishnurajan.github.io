@@ -5,8 +5,8 @@ import { VILLAGES, DEFAULT_VILLAGE_ID, getVillage } from '../data/villages';
 import {
     SENSOR_METRICS,
     evaluateMetric,
-    normalizeVillageNode,
-    resolveVillageNode,
+    normalizeVillageSources,
+    resolveVillageSources,
     defaultMetricPath,
     offsetCoords
 } from '../data/sensorSchema';
@@ -85,10 +85,10 @@ export const VillageSensorsProvider = ({ children }) => {
             let liveChanged = false;
 
             VILLAGES.forEach((village) => {
-                const resolved = resolveVillageNode(root, village);
-                const normalized = resolved
-                    ? normalizeVillageNode(resolved.node, resolved.path)
-                    : { readings: {}, updatedAt: null, found: 0, locations: {}, center: null };
+                const sources = resolveVillageSources(root, village);
+                const normalized = sources.length
+                    ? normalizeVillageSources(sources)
+                    : { readings: {}, updatedAt: null, found: 0, locations: {}, center: null, path: null };
 
                 const readings = {};
                 const liveValues = {};
@@ -129,7 +129,7 @@ export const VillageSensorsProvider = ({ children }) => {
                 next[village.id] = {
                     readings,
                     updatedAt: normalized.updatedAt || null,
-                    path: resolved ? resolved.path : null,
+                    path: normalized.found > 0 ? normalized.path : null,
                     hasData: normalized.found > 0,
                     locations: normalized.locations || {},
                     center: normalized.center || null

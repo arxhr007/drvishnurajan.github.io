@@ -201,7 +201,11 @@ The reader is tolerant, so firmware does not have to match the layout exactly:
 
 - Keys are matched case-insensitively after removing spaces, dashes and underscores (`Soil moisture value`, `soilMoisture` and `soil_moisture` all work), and common aliases are accepted (see `src/data/sensorSchema.js`).
 - The `agriculture` / `water` / `energy` grouping is optional; keys can sit directly under the village.
-- Writing flat keys at the database root (no `villages/puthenchira` wrapper) is treated as Puthenchira data.
+- Writing flat keys at the database root (no `villages/puthenchira` wrapper) is treated as Puthenchira data,
+  and is merged with anything under `villages/puthenchira`. The current ESP32 firmware layout
+  (`agriculture/environment/{temperature, humidity}`, `agriculture/soil/moisturePercent`) is read as-is.
+- Numeric `timestamp` values below 1 000 000 000 (device uptime in seconds) are ignored; send epoch seconds
+  or millis for a real device timestamp.
 - Values can be numbers, numeric strings (`"42.5%"`) or `{ "value": 42.5, "timestamp": 1758100000 }` objects.
 
 **ESP32 example (Firebase ESP Client):**
