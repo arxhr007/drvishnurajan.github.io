@@ -13,6 +13,7 @@ import { SustainabilityDashboard } from './components/Views/SustainabilityDashbo
 import { WasteManagement } from './components/Views/WasteManagement';
 import { SplashScreen } from './components/Layout/SplashScreen';
 import { AssetsProvider } from './context/AssetsContext';
+import { VillageSensorsProvider } from './context/VillageSensorsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 
@@ -39,7 +40,7 @@ function AppContent() {
         switch (activeView) {
             case 'dashboard': return <Dashboard onNavigate={handleNavigate} />;
             case 'map': return <FullMapView initialLayer="all" onNavigate={handleNavigate} />;
-            case 'live': return <LiveMonitoring initialAssetId={navParams?.assetId} />;
+            case 'live': return <LiveMonitoring initialAssetId={navParams?.assetId} initialMetricKey={navParams?.metricKey} />;
             case 'energy': return <FullMapView initialLayer="energy" onNavigate={handleNavigate} />;
             case 'energy-dashboard': return <EnergyDashboard />;
             case 'agriculture': return <AgricultureDashboard />;
@@ -59,9 +60,11 @@ function AppContent() {
         <>
             {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
             <AssetsProvider>
-                <MainLayout activeView={activeView} setActiveView={setActiveView} onNavigate={handleNavigate}>
-                    {renderView()}
-                </MainLayout>
+                <VillageSensorsProvider>
+                    <MainLayout activeView={activeView} setActiveView={setActiveView} onNavigate={handleNavigate}>
+                        {renderView()}
+                    </MainLayout>
+                </VillageSensorsProvider>
             </AssetsProvider>
         </>
     );

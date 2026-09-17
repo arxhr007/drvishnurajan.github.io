@@ -1,0 +1,25 @@
+{
+    "villages": {
+        "puthenchira": {
+            "agriculture": {
+                "soil_moisture": 42.5,
+                "temperature": 29.1,
+                "humidity": 71
+            },
+            "water": {
+                "ph": 7.2,
+                "rain_intensity": 4,
+                "water_level_dam": 63,
+                "water_level_tank": 78,
+                "pump": "off",
+                "turbidity": 2.4
+            },
+            "energy": {
+                "solar_output_wh": 1250,
+                "windmill_output_wh": 430,
+                "household_consumption_wh": 1610
+            },
+            "updated_at": 1758100000
+        }
+    }
+}

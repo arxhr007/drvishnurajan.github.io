@@ -143,3 +143,129 @@ The project is deployed via GitHub Pages.
 
 ---
 *Developed for Sahrdaya College of Engineering & Technology - CPS Department.*
+
+---
+
+## 🌾 UBA Village Field Sensors (RPS Sahrdaya Realtime Database)
+
+Under **Unnat Bharat Abhiyan (UBA)** Gram Vista is engaged with five adopted villages:
+Vadakkumbhagom, **Puthenchira** (live prototype), Karumathra, Thekkumkara and Kaduppassery.
+The **Live Monitoring** page has a village pull-down; the Agriculture, Water and Energy
+dashboards show the same village's live field sensors in a strip at the top.
+
+Field telemetry lives in a **second** Firebase project, separate from the login / assets project:
+
+| Purpose | Project | URL |
+| --- | --- | --- |
+| Google sign-in, `assets`, `categories`, `soil_monitoring` | `sahrdayacps` | `https://sahrdayacps-default-rtdb.firebaseio.com` |
+| Village field sensors (UBA prototype) | `rps-sahrdaya` | `https://rps-sahrdaya-bfe70-default-rtdb.asia-southeast1.firebasedatabase.app` |
+
+The sensor URL is set in `src/firebase.config.js` and can be overridden with `VITE_SENSOR_DB_URL` in a local `.env` file.
+
+### Node layout the field devices should write
+
+```json
+{
+  "villages": {
+    "puthenchira": {
+      "agriculture": { "soil_moisture": 42.5, "temperature": 29.1, "humidity": 71 },
+      "water": {
+        "ph": 7.2, "rain_intensity": 4, "water_level_dam": 63,
+        "water_level_tank": 78, "pump": "off", "turbidity": 2.4
+      },
+      "energy": { "solar_output_wh": 1250, "windmill_output_wh": 430, "household_consumption_wh": 1610 },
+      "updated_at": 1758100000
+    }
+  }
+}
+```
+
+A ready-to-import copy is in `src/data/sensor_seed.json` (Firebase console → Realtime Database → ⋮ → Import JSON).
+
+| Group | Key | Unit | Notes |
+| --- | --- | --- | --- |
+| agriculture | `soil_moisture` | % | warning outside 20–80 |
+| agriculture | `temperature` | °C | warning > 38, critical > 45 |
+| agriculture | `humidity` | % | warning outside 25–90 |
+| water | `ph` | pH | warning outside 6.5–8.5, critical outside 5–10 |
+| water | `rain_intensity` | mm/h | warning > 30, critical > 60 |
+| water | `water_level_dam` | % | warning > 85, critical > 95 |
+| water | `water_level_tank` | % | warning < 20, critical < 10 |
+| water | `pump` | on/off | `"on"`/`"off"`, `true`/`false` or `1`/`0`; admins can toggle it from the metric detail view |
+| water | `turbidity` | NTU | warning > 5, critical > 10 |
+| energy | `solar_output_wh` | Wh | producer |
+| energy | `windmill_output_wh` | Wh | producer |
+| energy | `household_consumption_wh` | Wh | consumer |
+
+The reader is tolerant, so firmware does not have to match the layout exactly:
+
+- Keys are matched case-insensitively after removing spaces, dashes and underscores (`Soil moisture value`, `soilMoisture` and `soil_moisture` all work), and common aliases are accepted (see `src/data/sensorSchema.js`).
+- The `agriculture` / `water` / `energy` grouping is optional; keys can sit directly under the village.
+- Writing flat keys at the database root (no `villages/puthenchira` wrapper) is treated as Puthenchira data.
+- Values can be numbers, numeric strings (`"42.5%"`) or `{ "value": 42.5, "timestamp": 1758100000 }` objects.
+
+**ESP32 example (Firebase ESP Client):**
+```cpp
+Firebase.RTDB.setFloat(&fbdo, "/villages/puthenchira/agriculture/soil_moisture", 42.5);
+Firebase.RTDB.setFloat(&fbdo, "/villages/puthenchira/water/ph", 7.2);
+Firebase.RTDB.setString(&fbdo, "/villages/puthenchira/water/pump", pumpOn ? "on" : "off");
+Firebase.RTDB.setInt(&fbdo, "/villages/puthenchira/updated_at", (int)time(nullptr));
+```
+
+To receive pump commands, subscribe to `/villages/puthenchira/water/pump` on the device.
+
+### City Map: village selection and sensor placement
+
+The **City Map** (and the mini-map on the Dashboard) uses OpenStreetMap tiles, which need no API key.
+A village pull-down sits at the top-left of the map; choosing a village flies the map to its centre
+and draws its sensor nodes (green = agriculture, cyan = water, yellow = energy; red/amber ring = alert;
+grey = no reading yet). Clicking a node opens a popup with the live value and a link to Live Monitoring.
+
+Village centres are in `src/data/villages.js`. Sensors are drawn at the village centre plus a default
+offset per sensor (`offset` in `src/data/sensorSchema.js`) until real positions are published. To use
+real GPS positions, write either of these to the sensor database:
+
+    villages/puthenchira/center            = { "lat": 10.2659, "lng": 76.2369 }
+    villages/puthenchira/locations/ph      = { "lat": 10.2671, "lng": 76.2360 }
+    villages/puthenchira/water/ph          = { "value": 7.2, "lat": 10.2671, "lng": 76.2360 }
+
+Vadakkumbhagom and Thekkumkara centres are approximate (not resolvable via OpenStreetMap geocoding);
+set `villages/<id>/center` to correct them.
+
+### Village Overview dashboard: live data, baseline, predictions and alerts
+
+The Dashboard is driven by the village sensor database plus a **synthetic baseline**:
+
+- **Live readings** arrive from `villages/<id>/...` in the RPS Sahrdaya database. Every change is also
+  appended to an in-session sample list used for trends and models.
+- **Synthetic baseline**: a seeded, deterministic 7-day hourly history per village
+  (`src/data/syntheticHistory.js`) with diurnal temperature/solar curves, household peaks, monsoon rain
+  events, soil drying (evapotranspiration), tank/pump cycles and dam/turbidity responses. Live hours
+  override the baseline hour they fall in. KPI tiles carry a **Live** or **Baseline** badge so the
+  source is always visible, and the header shows *All sensors live / N live · rest baseline / Synthetic baseline*.
+- **Trends**: 24 h / 3 d / 7 d charts for energy, water and agriculture.
+- **Machine-learning models** (`src/utils/ml/`), run in the browser on every update:
+  - *Agriculture*: Holt double-exponential smoothing of soil moisture corrected by an evapotranspiration
+    term (12 h forecast, hours until the 25 % dry threshold), a logistic irrigation-need model, a crop
+    stress index and z-score temperature anomalies.
+  - *Water*: least-squares regression on tank level (hours until low / empty / full), a logistic
+    flood-risk score from rain and dam level, a Water Quality Index from pH and turbidity, a Holt rain
+    nowcast and z-score turbidity anomalies.
+  - *Energy*: hour-of-day seasonal profiles learned from the last 7 days (level-adjusted to today) for
+    solar and household load, Holt smoothing for wind, projected surplus/deficit at midnight,
+    self-sufficiency, peak-load hour, and anomaly checks for solar under-performance and load spikes.
+- **Alerts** combine threshold rules on each reading with the model alerts above; each card is labelled
+  *rule* or *model* and links to the sensor in Live Monitoring.
+- The same prediction cards appear on the Agriculture, Water and Energy dashboards.
+
+#### Demo the real-time flow without hardware
+
+`npm run simulate:sensors` streams realistic readings for the 12 sensors into
+`villages/puthenchira` every 5 s through the REST API (it reads the pump state first, so dashboard
+toggles are honoured). Options:
+
+    npm run simulate:sensors -- --once          # write one snapshot
+    VILLAGE=karumathra INTERVAL=10 npm run simulate:sensors
+    DB_AUTH=<database secret> npm run simulate:sensors   # if rules require auth
+
+Energy values are treated as watt-hours produced or consumed in the last hour.

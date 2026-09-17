@@ -4,6 +4,8 @@ import { BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis, Cartesia
 import { Droplets, AlertCircle, CheckCircle2, Waves, FlaskConical, Thermometer } from 'lucide-react';
 import { DashboardCard } from '../Shared/DashboardCard';
 import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
+import { LiveSensorStrip } from '../Shared/LiveSensorStrip';
+import { ModelInsights } from '../Shared/ModelInsights';
 
 const tankData = [
     { name: 'Tank A (Main)', level: 15 },
@@ -71,6 +73,8 @@ export const WaterSystem = () => {
         <div className="p-6 h-full flex flex-col gap-6 overflow-y-auto">
             <div className="shrink-0">
                 <DemoEncryptionNotice />
+                <div className="mt-4"><LiveSensorStrip group="water" /></div>
+                <div className="mt-4"><ModelInsights group="water" compact /></div>
             </div>
 
             {/* Header Stats */}

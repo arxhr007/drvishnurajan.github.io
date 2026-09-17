@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { MapContainer, TileLayer, CircleMarker, Popup, Tooltip, useMap } from 'react-leaflet';
+import React, { useState, useEffect, useRef } from 'react';
+import { MapContainer, TileLayer, CircleMarker, Circle, Popup, Tooltip, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Filter, Eye, EyeOff, Save, Settings, Activity, Search } from 'lucide-react';
+import { Filter, Save, Settings, Activity, MapPin, Radio } from 'lucide-react';
 
 // Fix for default marker icon in Leaflet + React
 import L from 'leaflet';
@@ -17,9 +17,19 @@ L.Icon.Default.mergeOptions({
 });
 
 import { VILLAGE_CENTER } from '../../../data/mockData';
+import { SENSOR_GROUPS } from '../../../data/sensorSchema';
 import { useAssets } from '../../../hooks/useAssets';
-
+import { useVillageSensors } from '../../../hooks/useVillageSensors';
 import { useAuth } from '../../../context/AuthContext';
+import { VillageSelector, SensorConnectionBadge, formatReading, statusStyle } from '../../Shared/SensorWidgets';
+
+// OpenStreetMap standard tiles – no API key required
+export const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+export const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
+
+const GROUP_COLORS = { agriculture: '#10b981', water: '#06b6d4', energy: '#eab308' };
+const STATUS_STROKE = { critical: '#ef4444', warning: '#f59e0b', offline: '#94a3b8' };
+const VILLAGE_COLOR = '#6366f1';
 
 const AssetPopup = ({ asset, onUpdate, onNavigate }) => {
     const { isAdmin } = useAuth();
@@ -150,19 +160,102 @@ const AssetPopup = ({ asset, onUpdate, onNavigate }) => {
     );
 };
 
+// Popup for a village field sensor (rps-sahrdaya sensor database)
+const SensorPopup = ({ marker, village, onNavigate }) => {
+    const style = statusStyle(marker.status);
+    const hasValue = marker.value !== null && marker.value !== undefined;
 
+    return (
+        <div className="p-2 min-w-[220px]">
+            <div className="flex items-center justify-between mb-3 border-b border-slate-100 pb-2 gap-2">
+                <div className="min-w-0">
+                    <h3 className="font-bold text-slate-800 text-sm truncate">{marker.label}</h3>
+                    <p className="text-[10px] text-slate-500 font-mono truncate">{marker.key}</p>
+                </div>
+                <div className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase shrink-0 ${style.badge}`}>
+                    {style.label}
+                </div>
+            </div>
 
-// Helper Icon
+            <div className="flex items-center justify-between mb-3">
+                <div>
+                    <p className="text-xs text-slate-400 uppercase tracking-wide">Current</p>
+                    <p className="text-lg font-bold text-slate-700">
+                        {hasValue ? (
+                            <>{formatReading(marker)}{marker.unit && <span className="text-xs text-slate-500 ml-1">{marker.unit}</span>}</>
+                        ) : (
+                            <span className="text-sm font-normal italic text-slate-400">Waiting for data</span>
+                        )}
+                    </p>
+                </div>
+                <span
+                    className="text-[10px] font-bold uppercase px-2 py-1 rounded-full text-white"
+                    style={{ backgroundColor: GROUP_COLORS[marker.group] || '#64748b' }}
+                >
+                    {marker.group}
+                </span>
+            </div>
 
+            <div className="text-[11px] text-slate-600 space-y-1 mb-3">
+                <p><span className="font-semibold">Village:</span> {village?.name}</p>
+                <p><span className="font-semibold">Site:</span> {marker.site || 'Field node'}</p>
+                <p className="font-mono text-slate-500">
+                    {marker.coords[0].toFixed(5)}, {marker.coords[1].toFixed(5)}
+                    <span className="ml-1 not-italic text-slate-400">({marker.coordsSource === 'default' ? 'default placement' : marker.coordsSource})</span>
+                </p>
+                <p className="text-slate-500">{marker.message}</p>
+                {marker.lastUpdated && <p className="text-slate-400">Updated {marker.lastUpdated}</p>}
+            </div>
 
-export const MapVisualizer = ({ initialCategory = 'all', showFilters = true, zoomControl = true, interactive = true, onNavigate }) => {
-    console.log("MapVisualizer rendering. initialCategory:", initialCategory);
+            {onNavigate && (
+                <button
+                    onClick={() => onNavigate('live', { metricKey: marker.key })}
+                    className="w-full flex items-center justify-center gap-2 bg-blue-50 text-blue-600 hover:bg-blue-100 py-1.5 rounded-lg text-xs font-bold transition-colors"
+                >
+                    <Activity size={12} /> View Live Data
+                </button>
+            )}
+        </div>
+    );
+};
+
+// Re-centres the map whenever the selected village changes
+const VillageFocus = ({ villageId, center, zoom, markers }) => {
+    const map = useMap();
+    const lastVillageRef = useRef(null);
+
+    useEffect(() => {
+        if (!center || lastVillageRef.current === villageId) return;
+        const isFirst = lastVillageRef.current === null;
+        lastVillageRef.current = villageId;
+
+        const points = markers.map((m) => m.coords).filter(Boolean);
+        if (points.length >= 2) {
+            const bounds = L.latLngBounds(points).pad(0.2);
+            if (isFirst) map.fitBounds(bounds); else map.flyToBounds(bounds, { duration: 0.9 });
+        } else if (isFirst) {
+            map.setView(center, zoom || 15);
+        } else {
+            map.flyTo(center, zoom || 15, { duration: 0.9 });
+        }
+    }, [map, villageId, center, zoom, markers]);
+
+    return null;
+};
+
+export const MapVisualizer = ({
+    initialCategory = 'all',
+    showFilters = true,
+    showVillagePicker = true,
+    zoomControl = true,
+    interactive = true,
+    onNavigate
+}) => {
     const context = useAssets();
-    console.log("Context:", context);
     const { assets, updateAsset } = context || {};
-
     const safeAssets = Array.isArray(assets) ? assets : [];
-    console.log("Safe assets count:", safeAssets.length);
+
+    const { selectedVillage, selectedVillageId, villageCenter, markers, hasData } = useVillageSensors();
 
     const [filterStatus, setFilterStatus] = useState('all'); // all, active, offline
     const [filterCategory, setFilterCategory] = useState(initialCategory); // all, energy, water...
@@ -187,26 +280,31 @@ export const MapVisualizer = ({ initialCategory = 'all', showFilters = true, zoo
     };
 
     const filteredAssets = safeAssets.filter(asset => {
-        if (!asset) return false;
-        // Status Filter
-        if (filterStatus === 'active') {
-            if (asset.status === 'offline') return false;
-        }
-        if (filterStatus === 'offline') {
-            if (asset.status !== 'offline') return false;
-        }
-
-        // Category Filter
+        if (!asset || !asset.coords) return false;
+        if (filterStatus === 'active' && asset.status === 'offline') return false;
+        if (filterStatus === 'offline' && asset.status !== 'offline') return false;
         if (filterCategory !== 'all' && asset.category !== filterCategory) return false;
-
         return true;
     });
+
+    const filteredMarkers = markers.filter((marker) => {
+        if (!marker?.coords) return false;
+        const hasValue = marker.value !== null && marker.value !== undefined;
+        if (filterStatus === 'active' && !hasValue) return false;
+        if (filterStatus === 'offline' && hasValue) return false;
+        if (filterCategory !== 'all' && marker.group !== filterCategory) return false;
+        return true;
+    });
+
+    const mapCenter = villageCenter || VILLAGE_CENTER;
+    const mapZoom = selectedVillage?.zoom || 15;
+    const isLiveVillage = selectedVillage?.deployment === 'live';
 
     return (
         <div className="w-full h-full bg-slate-50 relative group">
             <MapContainer
-                center={VILLAGE_CENTER}
-                zoom={16}
+                center={mapCenter}
+                zoom={mapZoom}
                 scrollWheelZoom={interactive}
                 dragging={interactive}
                 touchZoom={interactive}
@@ -217,13 +315,81 @@ export const MapVisualizer = ({ initialCategory = 'all', showFilters = true, zoo
                 className={`w-full h-full outline-none ${!interactive ? 'pointer-events-none' : ''}`}
                 style={{ background: '#f8fafc' }}
             >
-                {/* Modern Light Mode Tiles */}
-                <TileLayer
-                    attribution='&copy; CARTO'
-                    url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
-                />
+                <TileLayer attribution={OSM_ATTRIBUTION} url={OSM_TILE_URL} />
 
-                {/* Assets */}
+                <VillageFocus villageId={selectedVillageId} center={villageCenter} zoom={mapZoom} markers={markers} />
+
+                {/* Village boundary ring */}
+                {villageCenter && (
+                    <Circle
+                        center={villageCenter}
+                        radius={620}
+                        pathOptions={{ color: VILLAGE_COLOR, weight: 1.5, dashArray: '6 6', fillColor: VILLAGE_COLOR, fillOpacity: 0.05 }}
+                    >
+                        <Tooltip direction="top" opacity={0.95} permanent offset={[0, -8]}>
+                            <span className="text-[11px] font-bold text-indigo-700">
+                                {selectedVillage?.name} · {isLiveVillage ? 'UBA live prototype' : 'UBA adopted village'}
+                            </span>
+                        </Tooltip>
+                    </Circle>
+                )}
+
+                {/* Planned village: centre pin only */}
+                {villageCenter && !isLiveVillage && (
+                    <CircleMarker
+                        center={villageCenter}
+                        radius={8}
+                        pathOptions={{ color: VILLAGE_COLOR, fillColor: '#ffffff', fillOpacity: 1, weight: 3, className: 'pointer-events-auto' }}
+                    >
+                        {interactive && (
+                            <Popup>
+                                <div className="p-2 min-w-[200px]">
+                                    <h3 className="font-bold text-slate-800 text-sm">{selectedVillage?.name}</h3>
+                                    <p className="text-xs text-slate-500 mt-1">{selectedVillage?.description}</p>
+                                    <p className="text-[11px] text-amber-600 mt-2">No field sensor nodes deployed yet.</p>
+                                </div>
+                            </Popup>
+                        )}
+                    </CircleMarker>
+                )}
+
+                {/* Village field sensors */}
+                {filteredMarkers.map((marker) => {
+                    const hasValue = marker.value !== null && marker.value !== undefined;
+                    const fill = GROUP_COLORS[marker.group] || '#64748b';
+                    const stroke = STATUS_STROKE[marker.status] || fill;
+                    return (
+                        <CircleMarker
+                            key={`sensor-${marker.key}`}
+                            center={marker.coords}
+                            radius={hasValue ? 10 : 7}
+                            pathOptions={{
+                                color: stroke,
+                                fillColor: fill,
+                                fillOpacity: hasValue ? 0.75 : 0.25,
+                                weight: marker.status === 'critical' || marker.status === 'warning' ? 4 : 2.5,
+                                className: 'pointer-events-auto'
+                            }}
+                            eventHandlers={{
+                                click: () => !interactive && onNavigate && onNavigate('live', { metricKey: marker.key })
+                            }}
+                        >
+                            <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                                <div className="text-xs font-bold text-slate-700">{marker.label}</div>
+                                <div className="text-[10px] text-slate-500">
+                                    {hasValue ? `${formatReading(marker)} ${marker.unit || ''}`.trim() : 'Waiting for data'}
+                                </div>
+                            </Tooltip>
+                            {interactive && (
+                                <Popup>
+                                    <SensorPopup marker={marker} village={selectedVillage} onNavigate={onNavigate} />
+                                </Popup>
+                            )}
+                        </CircleMarker>
+                    );
+                })}
+
+                {/* Registered digital-twin assets (sahrdayacps) */}
                 {filteredAssets.map(asset => (
                     <CircleMarker
                         key={asset.id}
@@ -253,17 +419,57 @@ export const MapVisualizer = ({ initialCategory = 'all', showFilters = true, zoo
                     </CircleMarker>
                 ))}
 
-
-
                 {/* Overlay Scanning Effect */}
                 <div className="leaflet-top leaflet-left w-full h-full pointer-events-none z-[400] overflow-hidden">
                     <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,transparent_0%,rgba(255,255,255,0.4)_100%)]"></div>
                 </div>
             </MapContainer>
 
+            {/* Village picker + legend */}
+            {showVillagePicker && (
+                <div className={`absolute top-4 ${interactive && zoomControl ? 'left-14' : 'left-4'} z-[500] flex flex-col gap-2 pointer-events-auto`}>
+                    <div className="bg-white/90 backdrop-blur-md p-2 rounded-xl border border-slate-200 shadow-lg flex flex-col gap-2 w-64">
+                        <div className="p-1 border-b border-slate-100 flex items-center gap-2">
+                            <MapPin size={16} className="text-slate-600" />
+                            <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">UBA Village</span>
+                        </div>
+                        <VillageSelector className="w-full" />
+                        <div className="flex items-center justify-between px-1">
+                            <SensorConnectionBadge compact />
+                            <span className="text-[10px] font-semibold text-slate-500 flex items-center gap-1">
+                                <Radio size={10} /> {isLiveVillage ? `${filteredMarkers.length} sensor nodes` : 'No nodes yet'}
+                            </span>
+                        </div>
+                        {isLiveVillage && !hasData && (
+                            <p className="px-1 text-[10px] text-amber-600">Nodes placed at default positions until readings arrive.</p>
+                        )}
+                        {selectedVillage?.approx && (
+                            <p className="px-1 text-[10px] text-amber-600">
+                                Approximate centre. Set villages/{selectedVillage.id}/center in Firebase to refine.
+                            </p>
+                        )}
+                    </div>
+
+                    <div className="bg-white/90 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-200 shadow-lg flex flex-wrap gap-x-3 gap-y-1 w-64">
+                        {SENSOR_GROUPS.map((group) => (
+                            <span key={group.id} className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+                                <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: GROUP_COLORS[group.id] }} />
+                                {group.label}
+                            </span>
+                        ))}
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+                            <span className="w-2.5 h-2.5 rounded-full border-2 border-red-500 bg-white" /> Alert
+                        </span>
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-600">
+                            <span className="w-2.5 h-2.5 rounded-full bg-slate-300" /> No data
+                        </span>
+                    </div>
+                </div>
+            )}
+
             {/* Floating Filter Bar - MOVED TO LEFT to avoid Zoom Control overlap */}
             {showFilters && (
-                <div className="absolute top-4 left-14 z-[500] bg-white/90 backdrop-blur shadow-lg rounded-xl p-2 flex flex-col gap-2 border border-slate-100 transition-opacity opacity-0 group-hover:opacity-100 duration-300">
+                <div className={`absolute ${showVillagePicker ? 'top-56' : 'top-4'} left-14 z-[500] bg-white/90 backdrop-blur shadow-lg rounded-xl p-2 flex flex-col gap-2 border border-slate-100 transition-opacity opacity-0 group-hover:opacity-100 duration-300`}>
                     <div className="flex items-center gap-2 border-b border-slate-100 pb-2 mb-1">
                         <Filter size={14} className="text-slate-400" />
                         <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Filters</span>
@@ -300,7 +506,7 @@ export const MapVisualizer = ({ initialCategory = 'all', showFilters = true, zoo
 
             {/* Instructions Hint */}
             <div className="absolute bottom-4 left-4 z-[400] bg-white/80 backdrop-blur px-3 py-2 rounded-lg text-[10px] text-slate-500 shadow-sm border border-slate-100 pointer-events-none">
-                Hover to see filters • Click nodes to control
+                {isLiveVillage ? 'Click a sensor node for live readings' : 'Select a village to view its sensor nodes'}
             </div>
         </div>
     );

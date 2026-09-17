@@ -3,6 +3,8 @@ import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
 import { Sun, Wind, Zap, Activity, Droplets, Cog, Lightbulb } from 'lucide-react';
 import { DashboardCard } from '../Shared/DashboardCard';
 import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
+import { LiveSensorStrip } from '../Shared/LiveSensorStrip';
+import { ModelInsights } from '../Shared/ModelInsights';
 import { useAssets } from '../../hooks/useAssets';
 import { useAuth } from '../../context/AuthContext';
 
@@ -174,6 +176,8 @@ export const EnergyDashboard = () => {
             </div>
 
             <DemoEncryptionNotice />
+            <LiveSensorStrip group="energy" />
+            <ModelInsights group="energy" compact />
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                 <StatCard label="Wind Output" value={windForDisplay.toFixed(1)} unit="kW" icon={Wind} tone="cyan" />

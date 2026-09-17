@@ -3,6 +3,8 @@ import { AreaChart, Area, BarChart, Bar, LineChart, Line, XAxis, YAxis, Cartesia
 import { Activity, AlertTriangle, ArrowRight, Camera, CameraOff, CheckCircle2, Droplets, Eye, Flame, ImagePlus, MapPinned, Mic, Shield, Sprout, TimerReset, TriangleAlert, Wind, Wifi, Zap } from 'lucide-react';
 import { DashboardCard } from '../Shared/DashboardCard';
 import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
+import { LiveSensorStrip } from '../Shared/LiveSensorStrip';
+import { ModelInsights } from '../Shared/ModelInsights';
 
 const PREDICTION_API_BASE = 'https://aaronthomas123-ice.hf.space';
 
@@ -450,6 +452,8 @@ export const AgricultureDashboard = () => {
             </div>
 
             <DemoEncryptionNotice />
+            <LiveSensorStrip group="agriculture" />
+            <ModelInsights group="agriculture" compact />
 
             <DashboardCard title="Tri-Modal Decision Engine">
                 <div className="rounded-xl border border-blue-200 bg-blue-50/70 p-4 md:p-5 mb-4">

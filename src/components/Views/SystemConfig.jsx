@@ -418,8 +418,8 @@ export const SystemConfig = () => {
                                 // Default zoom control enabled
                                 >
                                     <TileLayer
-                                        attribution='&copy; CARTO'
-                                        url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
+                                        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+                                        url="https://tile.openstreetmap.org/{z}/{x}/{y}.png"
                                     />
                                     <MapSearch />
                                     <LocationPicker
