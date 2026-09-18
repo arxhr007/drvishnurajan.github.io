@@ -188,7 +188,8 @@ A ready-to-import copy is in `src/data/sensor_seed.json` (Firebase console → R
 | agriculture | `temperature` | °C | warning > 38, critical > 45 |
 | agriculture | `humidity` | % | warning outside 25–90 |
 | water | `ph` | pH | warning outside 6.5–8.5, critical outside 5–10 |
-| water | `rain_intensity` | mm/h | warning > 30, critical > 60 |
+| water | `rain_intensity` | % (0–100 rain index) | warning > 30, critical > 60. A raw analog value under `rainValue` (4095 = dry) is converted automatically |
+| water | `rain_detected` | 0/1 | from `rainDetected` |
 | water | `water_level_dam` | % | warning > 85, critical > 95 |
 | water | `water_level_tank` | % | warning < 20, critical < 10 |
 | water | `pump` | on/off | `"on"`/`"off"`, `true`/`false` or `1`/`0`; admins can toggle it from the metric detail view |
@@ -203,7 +204,9 @@ The reader is tolerant, so firmware does not have to match the layout exactly:
 - The `agriculture` / `water` / `energy` grouping is optional; keys can sit directly under the village.
 - Writing flat keys at the database root (no `villages/puthenchira` wrapper) is treated as Puthenchira data,
   and is merged with anything under `villages/puthenchira`. The current ESP32 firmware layout
-  (`agriculture/environment/{temperature, humidity}`, `agriculture/soil/moisturePercent`) is read as-is.
+  (`agriculture/environment/{temperature, humidity}`, `agriculture/soil/moisturePercent`) is read as-is,
+  as is the flat `Agriculture/{humidity, temperature, soilMoisture, waterLevel, rainValue, rainDetected}` node.
+- A node that reports `online: false` is treated as stale and its readings are ignored.
 - Numeric `timestamp` values below 1 000 000 000 (device uptime in seconds) are ignored; send epoch seconds
   or millis for a real device timestamp.
 - Values can be numbers, numeric strings (`"42.5%"`) or `{ "value": 42.5, "timestamp": 1758100000 }` objects.

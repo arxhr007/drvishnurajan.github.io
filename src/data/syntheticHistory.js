@@ -19,7 +19,7 @@ export const IST_OFFSET_MS = 5.5 * HOUR_MS;
 
 export const METRIC_KEYS = [
     'soil_moisture', 'temperature', 'humidity',
-    'ph', 'rain_intensity', 'water_level_dam', 'water_level_tank', 'pump', 'turbidity',
+    'ph', 'rain_intensity', 'rain_detected', 'water_level_dam', 'water_level_tank', 'pump', 'turbidity',
     'solar_output_wh', 'windmill_output_wh', 'household_consumption_wh'
 ];
 
@@ -135,6 +135,7 @@ export const generateSyntheticHistory = (villageId = DEFAULT_VILLAGE_ID, { days 
             humidity: round(hum),
             ph: round(ph, 2),
             rain_intensity: round(rain),
+            rain_detected: raining ? 1 : 0,
             water_level_dam: round(dam),
             water_level_tank: round(tank),
             pump: pump || irrigating ? 1 : 0,
@@ -171,7 +172,7 @@ export const buildHourlySeries = (synthetic, liveSamples = []) => {
         METRIC_KEYS.forEach((key) => {
             const values = list.map((s) => s[key]).filter(isNum);
             if (!values.length) return;
-            merged[key] = key === 'pump' ? values[values.length - 1] : round(mean(values), 2);
+            merged[key] = (key === 'pump' || key === 'rain_detected') ? values[values.length - 1] : round(mean(values), 2);
         });
         byHour.set(hour, merged);
     });

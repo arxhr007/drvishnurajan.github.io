@@ -54,7 +54,7 @@ export const runWaterModel = ({ hourly, readings, now }) => {
     // --- Alerts ---------------------------------------------------------------
     const alerts = [];
     if (floodRisk >= 60) {
-        alerts.push({ severity: 'critical', metricKey: 'water_level_dam', title: 'Flood risk high', message: `Flood risk ${floodRisk} % – rain ${round(rain)} mm/h with dam at ${round(dam)} %. Prepare spillway release.` });
+        alerts.push({ severity: 'critical', metricKey: 'water_level_dam', title: 'Flood risk high', message: `Flood risk ${floodRisk} % – rain index ${round(rain)} % with dam at ${round(dam)} %. Prepare spillway release.` });
     } else if (floodRisk >= 40) {
         alerts.push({ severity: 'warning', metricKey: 'water_level_dam', title: 'Flood watch', message: `Flood risk ${floodRisk} %. Monitor dam level and rainfall.` });
     }
@@ -81,7 +81,7 @@ export const runWaterModel = ({ hourly, readings, now }) => {
         { key: 'tank_6h', label: 'Tank level in 6 h', value: round(tankForecast[5]), unit: '%', confidence: tankConfidence, method: 'Linear regression' },
         { key: 'hours_to_low', label: 'Hours until tank < 20 %', value: hoursToLow === null ? (slope >= -0.05 ? 'Stable' : '> 12') : hoursToLow, unit: hoursToLow === null ? '' : 'h', confidence: tankConfidence, method: 'Linear regression' },
         { key: 'flood_risk', label: 'Flood risk (next 6 h)', value: floodRisk, unit: '%', confidence: 72, method: 'Logistic risk model' },
-        { key: 'rain_3h', label: 'Expected rain next 3 h', value: expectedRain3h, unit: 'mm', confidence: forecastConfidence(rainSeries.slice(-12), 3), method: 'Holt smoothing' },
+        { key: 'rain_3h', label: 'Rain index next 3 h', value: Math.round(expectedRain3h / 3), unit: '% avg', confidence: forecastConfidence(rainSeries.slice(-12), 3), method: 'Holt smoothing' },
         { key: 'wqi', label: 'Water Quality Index', value: wqi, unit: `/100 · ${grade}`, confidence: 85, method: 'Penalty index' },
         { key: 'pump_duty', label: 'Pump duty (24 h)', value: pumpDuty, unit: '%', confidence: 90, method: 'Duty-cycle analysis' }
     ];
@@ -111,7 +111,7 @@ export const runWaterModel = ({ hourly, readings, now }) => {
         predictions,
         alerts,
         series,
-        seriesKeys: { actual: 'Tank level', forecast: 'Forecast', rain: 'Rain (mm/h)' },
+        seriesKeys: { actual: 'Tank level', forecast: 'Forecast', rain: 'Rain index (%)' },
         unit: '%',
         summary,
         score: Math.round(clamp((wqi + (100 - floodRisk) + clamp(tank, 0, 100)) / 3, 0, 100)),

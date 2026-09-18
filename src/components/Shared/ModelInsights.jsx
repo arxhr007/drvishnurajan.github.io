@@ -54,7 +54,7 @@ const ForecastChart = ({ group, model }) => {
             {group === 'water' && <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10 }} stroke="#94a3b8" tickLine={false} axisLine={false} width={36} />}
             <Tooltip contentStyle={TOOLTIP_STYLE} />
             <Legend wrapperStyle={{ fontSize: 10 }} />
-            {group === 'water' && <Bar yAxisId="right" dataKey="rain" name="Rain (mm/h)" fill="#3b82f6" fillOpacity={0.35} isAnimationActive={false} />}
+            {group === 'water' && <Bar yAxisId="right" dataKey="rain" name="Rain index (%)" fill="#3b82f6" fillOpacity={0.35} isAnimationActive={false} />}
             <Area yAxisId="left" type="monotone" dataKey="actual" name={model.seriesKeys.actual} stroke={meta.stroke} fill={meta.stroke} fillOpacity={0.2} strokeWidth={2} dot={false} isAnimationActive={false} connectNulls />
             <Line yAxisId="left" type="monotone" dataKey="forecast" name={model.seriesKeys.forecast} stroke={meta.stroke} strokeWidth={2} strokeDasharray="5 4" dot={false} isAnimationActive={false} connectNulls />
         </ComposedChart>

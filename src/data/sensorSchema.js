@@ -63,10 +63,18 @@ export const SENSOR_METRICS = [
         offset: [0.0016, -0.0010], site: 'Water quality station'
     },
     {
-        key: 'rain_intensity', group: 'water', label: 'Rain Intensity', unit: 'mm/h', icon: 'CloudRain',
-        aliases: ['rain', 'rainfall', 'rain_value', 'rain_sensor', 'rain_intensity_value'],
+        key: 'rain_intensity', group: 'water', label: 'Rain Intensity', unit: '%', icon: 'CloudRain',
+        aliases: ['rain', 'rainfall', 'rain_intensity_value', 'rain_percent', 'rain_index'],
+        // Raw 12-bit ADC from an analog rain plate: 4095 = dry, lower = wetter
+        rawAliases: ['rain_value', 'rainValue', 'rain_raw', 'rain_analog', 'rain_adc', 'rain_sensor'],
+        fromRaw: (raw) => Math.round(Math.min(100, Math.max(0, (4095 - raw) / 4095 * 100))),
         range: { max: 30, criticalMax: 60, maxMsg: 'Heavy rainfall detected' },
         offset: [0.0004, 0.0008], site: 'Rain gauge – panchayat office'
+    },
+    {
+        key: 'rain_detected', group: 'water', label: 'Rain Detected', unit: '', icon: 'CloudRain', binary: true,
+        aliases: ['rainDetected', 'is_raining', 'raining', 'rain_status', 'rain_flag'],
+        offset: [0.0006, 0.0014], site: 'Rain gauge – panchayat office'
     },
     {
         key: 'water_level_dam', group: 'water', label: 'Water Level – Dam', unit: '%', icon: 'Waves',
@@ -117,13 +125,27 @@ export const metricsForGroup = (groupId) => SENSOR_METRICS.filter((metric) => me
 // ── Key normalisation ────────────────────────────────────────────────────────
 export const normKey = (key) => String(key ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
-const METRIC_LOOKUP = new Map();
+const METRIC_LOOKUP = new Map();      // normalised key -> metric key
+const RAW_ALIAS_LOOKUP = new Set();   // normalised keys that carry a raw ADC value needing `fromRaw`
 SENSOR_METRICS.forEach((metric) => {
     [metric.key, ...(metric.aliases || [])].forEach((alias) => {
         const nk = normKey(alias);
         if (!METRIC_LOOKUP.has(nk)) METRIC_LOOKUP.set(nk, metric.key);
     });
+    (metric.rawAliases || []).forEach((alias) => {
+        const nk = normKey(alias);
+        if (!METRIC_LOOKUP.has(nk)) { METRIC_LOOKUP.set(nk, metric.key); RAW_ALIAS_LOOKUP.add(nk); }
+    });
 });
+
+/** A node that declares `online: false` is stale; its readings are ignored. */
+const isOfflineNode = (obj) => {
+    if (!isPlainObject(obj)) return false;
+    const key = Object.keys(obj).find((k) => normKey(k) === 'online');
+    if (key === undefined) return false;
+    const v = obj[key];
+    return v === false || v === 0 || String(v).toLowerCase() === 'false' || String(v).toLowerCase() === 'off';
+};
 
 const TIMESTAMP_KEYS = new Set(['timestamp', 'updatedat', 'lastupdated', 'lastupdate', 'time', 'ts', 'datetime', 'lastseen']);
 const LOCATION_MAP_KEYS = new Set(['locations', 'sensorlocations', 'positions', 'coords', 'geo']);
@@ -324,7 +346,9 @@ export const normalizeVillageNode = (node, basePath = '', skip = null) => {
             if (metricKey) {
                 if (readings[metricKey] === undefined) { // first match wins
                     const metric = METRIC_BY_KEY[metricKey];
-                    const entry = { value: parseSensorValue(metric, raw), raw, path: childPath };
+                    let value = parseSensorValue(metric, raw);
+                    if (value !== null && RAW_ALIAS_LOOKUP.has(nk) && typeof metric.fromRaw === 'function') value = metric.fromRaw(value);
+                    const entry = { value, raw, path: childPath };
                     if (isPlainObject(raw)) {
                         const ts = parseTimestamp(raw.timestamp ?? raw.updated_at ?? raw.updatedAt ?? raw.time ?? raw.ts);
                         if (ts) entry.timestamp = ts;
@@ -358,11 +382,11 @@ export const normalizeVillageNode = (node, basePath = '', skip = null) => {
                 continue;
             }
 
-            if (isPlainObject(raw) && depth < 3) visit(raw, childPath, depth + 1);
+            if (isPlainObject(raw) && depth < 3 && !isOfflineNode(raw)) visit(raw, childPath, depth + 1);
         }
     };
 
-    visit(node, basePath, 0);
+    if (!isOfflineNode(node)) visit(node, basePath, 0);
     return { readings, updatedAt, found: Object.keys(readings).length, locations, center };
 };
 

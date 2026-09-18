@@ -78,7 +78,7 @@ export const TrendCharts = () => {
                     </ComposedChart>
                 </ChartCard>
 
-                <ChartCard title="Water (levels & rain)" subtitle="Tank and dam level (%) with rain intensity (mm/h)">
+                <ChartCard title="Water (levels & rain)" subtitle="Tank and dam level (%) with rain index (%)">
                     <ComposedChart data={data}>
                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                         <XAxis dataKey="time" {...axisProps} interval="preserveStartEnd" minTickGap={28} />
