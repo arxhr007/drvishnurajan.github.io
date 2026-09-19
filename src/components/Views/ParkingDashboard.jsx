@@ -226,7 +226,15 @@ const ConfigPanel = ({ config, sensors, onSave, saving, saveError, canEdit, conf
 };
 
 export const ParkingDashboard = () => {
-    const { config, configSource, saveConfig, saving, saveError, sensors, slots, stats, emergencyOccupied, history, connected, loading, lastUpdate } = useParking();
+    const { config, configSource, saveConfig, saving, saveError, sensors, slots, stats, deviceCounts, emergencyOccupied, history, connected, loading, lastUpdate } = useParking();
+    // The node's counters may or may not include the emergency bay; accept either
+    const emergencyOccupiedCount = stats.emergency?.state === 'occupied' ? 1 : 0;
+    const emergencyFreeCount = stats.emergency?.state === 'free' ? 1 : 0;
+    const deviceCountsMatch = deviceCounts.free !== null && deviceCounts.occupied !== null
+        ? [0, 1].some((withEmergency) =>
+            deviceCounts.free === stats.free - (withEmergency ? 0 : emergencyFreeCount)
+            && deviceCounts.occupied === stats.occupied - (withEmergency ? 0 : emergencyOccupiedCount))
+        : null;
     const { isAdmin } = useAuth();
     const [soundOn, setSoundOn] = useState(false);
     const audioRef = useRef(null);
@@ -314,8 +322,8 @@ export const ParkingDashboard = () => {
             {/* Stats */}
             <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3">
                 <Stat label="Total slots" value={stats.total} icon={SquareParking} tone="blue" />
-                <Stat label="Occupied" value={stats.occupied} icon={Car} tone="red" />
-                <Stat label="Free" value={stats.free} icon={CheckCircle2} tone="green" />
+                <Stat label="Occupied" value={stats.occupied} icon={Car} tone="red" sub={deviceCounts.occupied !== null ? `node reports ${deviceCounts.occupied}${deviceCountsMatch === false ? ' · mismatch' : ''}` : undefined} />
+                <Stat label="Free" value={stats.free} icon={CheckCircle2} tone="green" sub={deviceCounts.free !== null ? `node reports ${deviceCounts.free}${deviceCountsMatch === false ? ' · mismatch' : ''}` : undefined} />
                 <Stat label="Occupancy" value={stats.occupancyPct} unit="%" icon={Radar} tone={stats.occupancyPct >= 90 ? 'red' : stats.occupancyPct >= 70 ? 'amber' : 'slate'} sub={stats.unknown ? `${stats.unknown} bay${stats.unknown === 1 ? '' : 's'} without reading` : 'all bays sensed'} />
                 <Stat label="Emergency bay" value={stats.emergency ? STATE_META[stats.emergency.state].label : '—'} icon={Ambulance} tone={emergencyOccupied ? 'red' : 'green'} />
                 <Stat label="Sensors online" value={`${stats.sensorsOnline}/${stats.sensorsDetected}`} icon={Wifi} tone={stats.sensorsOnline === stats.sensorsDetected && stats.sensorsDetected ? 'green' : 'amber'} />

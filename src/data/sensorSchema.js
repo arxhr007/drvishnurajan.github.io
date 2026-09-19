@@ -25,6 +25,10 @@
 // ---------------------------------------------------------------------------
 import { DEFAULT_VILLAGE_ID, VILLAGES } from './villages.js';
 
+// Analog pH board calibration (pH = PH_SLOPE × volts + PH_OFFSET). Adjust after a 2-point buffer test.
+export const PH_SLOPE = 3.5;
+export const PH_OFFSET = 0;
+
 export const SENSOR_GROUPS = [
     { id: 'agriculture', label: 'Agriculture', tone: 'emerald', icon: 'Sprout' },
     { id: 'water', label: 'Water Management', tone: 'cyan', icon: 'Droplets' },
@@ -59,6 +63,11 @@ export const SENSOR_METRICS = [
     {
         key: 'ph', group: 'water', label: 'pH Level', unit: 'pH', icon: 'FlaskConical',
         aliases: ['ph_value', 'ph_sensor', 'ph_sensor_value', 'water_ph', 'ph_level'],
+        rawAliases: ['ph_raw', 'ph_adc', 'ph_analog'],
+        // A value above 14 can only be a raw 12-bit ADC count from an analog pH board
+        // (PH-4502C class): V = raw / 4095 * 3.3, pH ≈ 3.5 × V. Calibrate PH_SLOPE/PH_OFFSET with buffers.
+        rawMax: 14,
+        fromRaw: (raw) => Math.round(Math.min(14, Math.max(0, PH_SLOPE * (raw / 4095) * 3.3 + PH_OFFSET)) * 100) / 100,
         range: { min: 6.5, max: 8.5, criticalMin: 5, criticalMax: 10, minMsg: 'Water is acidic', maxMsg: 'Water is alkaline' },
         offset: [0.0016, -0.0010], site: 'Water quality station'
     },
@@ -96,6 +105,11 @@ export const SENSOR_METRICS = [
     {
         key: 'turbidity', group: 'water', label: 'Turbidity', unit: 'NTU', icon: 'Eye',
         aliases: ['turbidity_value', 'turbidity_sensor', 'water_turbidity', 'turbidity_value_of_water'],
+        rawAliases: ['turbidity_raw', 'turbidity_adc', 'turbidity_analog'],
+        // Analog turbidity boards output a high voltage for clear water: 4095 = clear (0 NTU).
+        // Values above 300 are treated as raw counts and mapped to a 0–100 NTU scale.
+        rawMax: 300,
+        fromRaw: (raw) => Math.round(Math.min(100, Math.max(0, (4095 - raw) / 4095 * 100)) * 10) / 10,
         range: { max: 5, criticalMax: 10, maxMsg: 'Water is turbid – check filtration' },
         offset: [0.0010, -0.0020], site: 'Water quality station'
     },
@@ -347,7 +361,8 @@ export const normalizeVillageNode = (node, basePath = '', skip = null) => {
                 if (readings[metricKey] === undefined) { // first match wins
                     const metric = METRIC_BY_KEY[metricKey];
                     let value = parseSensorValue(metric, raw);
-                    if (value !== null && RAW_ALIAS_LOOKUP.has(nk) && typeof metric.fromRaw === 'function') value = metric.fromRaw(value);
+                    const isRawCount = RAW_ALIAS_LOOKUP.has(nk) || (metric.rawMax !== undefined && value !== null && value > metric.rawMax);
+                    if (value !== null && isRawCount && typeof metric.fromRaw === 'function') value = metric.fromRaw(value);
                     const entry = { value, raw, path: childPath };
                     if (isPlainObject(raw)) {
                         const ts = parseTimestamp(raw.timestamp ?? raw.updated_at ?? raw.updatedAt ?? raw.time ?? raw.ts);

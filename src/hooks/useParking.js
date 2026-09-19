@@ -29,7 +29,9 @@ export const DEFAULT_PARKING_CONFIG = {
 };
 
 const MAX_HISTORY = 180;
-const MAX_VALID_CM = 1000;
+const MAX_VALID_CM = 998;          // 999 (and above) is the firmware's "no echo" sentinel
+const OCCUPIED_WORDS = ['occupied', 'full', 'busy', 'taken', 'parked', 'on', '1', 'true', 'yes'];
+const FREE_WORDS = ['free', 'empty', 'vacant', 'available', 'off', '0', 'false', 'no'];
 
 const isPlainObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -47,11 +49,35 @@ const toNumber = (raw) => {
 const toBool = (raw) => {
     if (typeof raw === 'boolean') return raw;
     if (isNum(raw)) return raw > 0;
-    if (typeof raw === 'string') return ['1', 'true', 'on', 'yes', 'occupied'].includes(raw.trim().toLowerCase());
+    if (typeof raw === 'string') {
+        const word = raw.trim().toLowerCase();
+        if (OCCUPIED_WORDS.includes(word)) return true;
+        if (FREE_WORDS.includes(word)) return false;
+    }
     return null;
 };
 
 const naturalCompare = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+
+/** Device-side aggregate counters, if the firmware publishes them (parking/freeSlots, parking/occupiedSlots). */
+export const detectDeviceCounts = (root) => {
+    const counts = { free: null, occupied: null, total: null };
+    const visit = (obj, depth) => {
+        if (!isPlainObject(obj) || depth > 3) return;
+        for (const [key, raw] of Object.entries(obj)) {
+            const nk = normKey(key);
+            if (isPlainObject(raw)) { visit(raw, depth + 1); continue; }
+            const n = toNumber(raw);
+            if (n === null) continue;
+            if (['freeslots', 'free', 'available', 'availableslots', 'vacant'].includes(nk)) counts.free = n;
+            else if (['occupiedslots', 'occupied', 'used', 'usedslots'].includes(nk)) counts.occupied = n;
+            else if (['totalslots', 'total', 'slots'].includes(nk)) counts.total = n;
+        }
+    };
+    const parkingKey = isPlainObject(root) ? Object.keys(root).find((k) => normKey(k).includes('parking')) : null;
+    if (parkingKey) visit(root[parkingKey], 0);
+    return counts;
+};
 
 /** Find every ultrasonic / distance reading in the snapshot. */
 export const detectUltrasonicSensors = (root) => {
@@ -64,15 +90,17 @@ export const detectUltrasonicSensors = (root) => {
             const nk = normKey(key);
             if (nk === 'config') continue;
             const childPath = path ? `${path}/${key}` : key;
-            const inParking = underParking || nk.includes('parking') || nk.includes('slot') || nk.includes('bay');
+            const inParking = underParking || nk.includes('parking') || nk.includes('slot') || nk.includes('bay') || nk.includes('emergency');
 
             if (isPlainObject(raw)) {
                 visit(raw, childPath, depth + 1, inParking);
                 continue;
             }
 
-            if (inParking && nk === 'occupied') {
-                occupiedByContainer[path] = toBool(raw);
+            // Device-decided state: occupied: true/false or status: "FREE"/"OCCUPIED"
+            if (inParking && (nk === 'occupied' || nk === 'status' || nk === 'state')) {
+                const flag = toBool(raw);
+                if (flag !== null) occupiedByContainer[path] = flag;
                 continue;
             }
 
@@ -180,7 +208,16 @@ export const useParking = () => {
     }, []);
 
     const sensors = useMemo(() => detectUltrasonicSensors(root), [root]);
-    const slots = useMemo(() => buildSlots(config, sensors), [config, sensors]);
+    const deviceCounts = useMemo(() => detectDeviceCounts(root), [root]);
+
+    // Until a setup is saved, size the lot to what the nodes publish and put the emergency bay last
+    const effectiveConfig = useMemo(() => {
+        if (configSource === 'firebase' || sensors.length === 0) return config;
+        const total = Math.max(1, sensors.length);
+        return { ...config, totalSlots: total, emergencySlot: total };
+    }, [config, configSource, sensors]);
+
+    const slots = useMemo(() => buildSlots(effectiveConfig, sensors), [effectiveConfig, sensors]);
 
     const stats = useMemo(() => {
         const occupied = slots.filter((s) => s.state === 'occupied').length;
@@ -231,5 +268,8 @@ export const useParking = () => {
 
     const emergencyOccupied = stats.emergency?.state === 'occupied';
 
-    return { config, configSource, saveConfig, saving, saveError, sensors, slots, stats, emergencyOccupied, history, connected, loading, lastUpdate };
+    return {
+        config: effectiveConfig, savedConfig: config, configSource, saveConfig, saving, saveError,
+        sensors, slots, stats, deviceCounts, emergencyOccupied, history, connected, loading, lastUpdate
+    };
 };

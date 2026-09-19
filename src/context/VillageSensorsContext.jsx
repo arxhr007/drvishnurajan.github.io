@@ -51,6 +51,7 @@ export const VillageSensorsProvider = ({ children }) => {
     const [connected, setConnected] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
+    const [lastSyncAt, setLastSyncAt] = useState(null); // time the last snapshot arrived from Firebase
 
     const historyRef = useRef({});   // `${villageId}:${metricKey}` -> [{ time, value }]
     const lastRef = useRef({});      // `${villageId}:${metricKey}` -> { value, time }
@@ -157,6 +158,7 @@ export const VillageSensorsProvider = ({ children }) => {
             }
 
             setVillageData(next);
+            setLastSyncAt(now);
             setError(null);
             setLoading(false);
         }, (err) => {
@@ -239,12 +241,13 @@ export const VillageSensorsProvider = ({ children }) => {
         villageCenter,
         markers,
         liveSamples,
+        lastSyncAt,
         connected,
         loading,
         error,
         setMetricValue,
         sensorDbUrl: SENSOR_DB_URL
-    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, markers, liveSamples, connected, loading, error, setMetricValue]);
+    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, markers, liveSamples, lastSyncAt, connected, loading, error, setMetricValue]);
 
     return (
         <VillageSensorsContext.Provider value={value}>

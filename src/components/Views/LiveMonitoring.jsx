@@ -626,7 +626,7 @@ const UbaBanner = ({ villages, selectedVillageId, onSelect }) => (
     </div>
 );
 
-const VillageSummaryCard = ({ village, villagePath, villageUpdatedAt, hasData, sensorDbUrl }) => (
+const VillageSummaryCard = ({ village, villagePath, villageUpdatedAt, hasData, sensorDbUrl, lastSyncAt }) => (
     <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-md p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -635,12 +635,16 @@ const VillageSummaryCard = ({ village, villagePath, villageUpdatedAt, hasData, s
             </div>
             <p className="text-sm text-slate-500 mt-1">{village.description}</p>
         </div>
-        <div className="grid grid-cols-2 gap-3 text-xs shrink-0">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs shrink-0">
             <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-[150px]">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Data node</p>
                 <p className="font-mono text-slate-800 truncate" title={sensorDbUrl}>
                     {hasData ? `/${villagePath || ''}` : 'awaiting first write'}
                 </p>
+            </div>
+            <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-[150px]">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Last sync</p>
+                <p className="text-slate-800 truncate">{lastSyncAt ? formatTimeIST(lastSyncAt) : 'waiting'}</p>
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-[150px]">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Device timestamp</p>
@@ -673,7 +677,7 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
     const { assets, loading } = useAssets();
     const {
         villages, selectedVillage, selectedVillageId, setSelectedVillageId,
-        readings, hasData, villagePath, villageUpdatedAt, sensorDbUrl, loading: sensorsLoading
+        readings, hasData, villagePath, villageUpdatedAt, sensorDbUrl, lastSyncAt, loading: sensorsLoading
     } = useVillageSensors();
 
     const [selectedAssetId, setSelectedAssetId] = useState(null);
@@ -806,6 +810,7 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
                                 villageUpdatedAt={villageUpdatedAt}
                                 hasData={hasData}
                                 sensorDbUrl={sensorDbUrl}
+                                lastSyncAt={lastSyncAt}
                             />
 
                             {groupSections.map((section) => {

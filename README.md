@@ -187,13 +187,13 @@ A ready-to-import copy is in `src/data/sensor_seed.json` (Firebase console → R
 | agriculture | `soil_moisture` | % | warning outside 20–80 |
 | agriculture | `temperature` | °C | warning > 38, critical > 45 |
 | agriculture | `humidity` | % | warning outside 25–90 |
-| water | `ph` | pH | warning outside 6.5–8.5, critical outside 5–10 |
+| water | `ph` | pH | warning outside 6.5–8.5, critical outside 5–10. A value above 14 is treated as a raw ADC count and converted (pH ≈ 3.5 × volts; tune `PH_SLOPE`/`PH_OFFSET` in `sensorSchema.js` after buffer calibration) |
 | water | `rain_intensity` | % (0–100 rain index) | warning > 30, critical > 60. A raw analog value under `rainValue` (4095 = dry) is converted automatically |
 | water | `rain_detected` | 0/1 | from `rainDetected` |
 | water | `water_level_dam` | % | warning > 85, critical > 95 |
 | water | `water_level_tank` | % | warning < 20, critical < 10 |
 | water | `pump` | on/off | `"on"`/`"off"`, `true`/`false` or `1`/`0`; admins can toggle it from the metric detail view |
-| water | `turbidity` | NTU | warning > 5, critical > 10 |
+| water | `turbidity` | NTU | warning > 5, critical > 10. A value above 300 is treated as a raw ADC count (4095 = clear) and mapped to 0–100 NTU |
 | energy | `solar_output_wh` | Wh | producer |
 | energy | `windmill_output_wh` | Wh | producer |
 | energy | `household_consumption_wh` | Wh | consumer |
@@ -284,7 +284,10 @@ Enter the number of slots, the occupied threshold (cm) and which bay is the ambu
 *Parking Setup*; admins can save the setup to `parking/config` so every viewer sees the same layout.
 
 - A bay is **occupied** when its sensor distance is below the threshold (default 60 cm), **free** above it.
-  A bay node may also publish `occupied: true/false` directly.
+  A bay node may also publish `occupied: true/false` or `status: "FREE"/"OCCUPIED"` directly, which takes priority;
+  a distance of 999 or more is treated as "no echo". `parking/freeSlots` and `parking/occupiedSlots` from the node are
+  shown beside the dashboard's own counts as a cross-check. Until a setup is saved, the lot is sized to the number of
+  sensors found, with the emergency bay last.
 - The **emergency bay** raises a red banner (optional audible alarm) and a critical alert on the Overview
   dashboard whenever it is occupied; otherwise it shows *Free*.
 - Free / occupied / occupancy % / sensors online are counted from the bays that have a reading.
