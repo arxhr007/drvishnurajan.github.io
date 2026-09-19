@@ -142,8 +142,27 @@ const coerceConfig = (raw) => {
     return cfg;
 };
 
+/**
+ * Learn the occupied/free distance boundary from the bays where the device
+ * published a status alongside a distance. Installations differ: these nodes
+ * read ~17 cm for a free bay and ~5 cm for an occupied one, so a fixed 60 cm
+ * default would invert every bay if the status field ever disappeared.
+ * Returns null when the readings do not separate cleanly.
+ */
+export const deriveThresholdCm = (sensors) => {
+    const labelled = sensors.filter((s) => s.occupied !== null && s.distance !== null);
+    if (labelled.length < 2) return null;
+    const occupied = labelled.filter((s) => s.occupied).map((s) => s.distance);
+    const free = labelled.filter((s) => !s.occupied).map((s) => s.distance);
+    if (!occupied.length || !free.length) return null;
+    const maxOccupied = Math.max(...occupied);
+    const minFree = Math.min(...free);
+    if (maxOccupied >= minFree) return null; // overlapping, cannot separate
+    return Math.round(((maxOccupied + minFree) / 2) * 10) / 10;
+};
+
 /** Assign detected sensors to bays: explicit map first, then emergency, then in order. */
-export const buildSlots = (config, sensors) => {
+export const buildSlots = (config, sensors, thresholdOverride = null) => {
     const byPath = Object.fromEntries(sensors.map((s) => [s.path, s]));
     const used = new Set();
     const assigned = {};
@@ -167,17 +186,27 @@ export const buildSlots = (config, sensors) => {
     }
     if (!assigned[config.emergencySlot] && remaining.length) assigned[config.emergencySlot] = remaining.shift();
 
+    const threshold = thresholdOverride ?? config.thresholdCm;
+
     return Array.from({ length: config.totalSlots }, (_, i) => {
         const bay = i + 1;
         const sensor = assigned[bay] || null;
         const isEmergency = bay === config.emergencySlot;
         let state = 'no-sensor';
+        let source = null;
         if (sensor) {
-            if (sensor.occupied !== null) state = sensor.occupied ? 'occupied' : 'free';
-            else if (sensor.distance === null) state = 'offline';
-            else state = sensor.distance < config.thresholdCm ? 'occupied' : 'free';
+            if (sensor.occupied !== null) {
+                // The node already decided; its own status always wins over our threshold
+                state = sensor.occupied ? 'occupied' : 'free';
+                source = 'device';
+            } else if (sensor.distance === null) {
+                state = 'offline';
+            } else {
+                state = sensor.distance < threshold ? 'occupied' : 'free';
+                source = 'threshold';
+            }
         }
-        return { bay, isEmergency, sensor, state, distance: sensor?.distance ?? null };
+        return { bay, isEmergency, sensor, state, source, distance: sensor?.distance ?? null };
     });
 };
 
@@ -217,7 +246,11 @@ export const useParking = () => {
         return { ...config, totalSlots: total, emergencySlot: total };
     }, [config, configSource, sensors]);
 
-    const slots = useMemo(() => buildSlots(effectiveConfig, sensors), [effectiveConfig, sensors]);
+    const derivedThresholdCm = useMemo(() => deriveThresholdCm(sensors), [sensors]);
+    const slots = useMemo(
+        () => buildSlots(effectiveConfig, sensors, derivedThresholdCm),
+        [effectiveConfig, sensors, derivedThresholdCm]
+    );
 
     const stats = useMemo(() => {
         const occupied = slots.filter((s) => s.state === 'occupied').length;
@@ -228,6 +261,7 @@ export const useParking = () => {
             total: slots.length,
             occupied,
             free,
+            fromDevice: slots.filter((s) => s.source === 'device').length,
             unknown: slots.length - sensed,
             occupancyPct: sensed ? Math.round((occupied / sensed) * 100) : 0,
             sensorsOnline: sensors.filter((s) => s.distance !== null || s.occupied !== null).length,
@@ -270,6 +304,6 @@ export const useParking = () => {
 
     return {
         config: effectiveConfig, savedConfig: config, configSource, saveConfig, saving, saveError,
-        sensors, slots, stats, deviceCounts, emergencyOccupied, history, connected, loading, lastUpdate
+        sensors, slots, stats, deviceCounts, derivedThresholdCm, emergencyOccupied, history, connected, loading, lastUpdate
     };
 };

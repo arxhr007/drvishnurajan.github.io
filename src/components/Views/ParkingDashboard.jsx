@@ -63,7 +63,7 @@ const STATE_META = {
 
 // One parking bay: painted lines, bay number, vehicle when occupied
 const Bay = ({ slot, thresholdCm }) => {
-    const { bay, isEmergency, state, distance, sensor } = slot;
+    const { bay, isEmergency, state, distance, sensor, source } = slot;
     const occupied = state === 'occupied';
     const free = state === 'free';
     const colour = CAR_COLORS[(bay - 1) % CAR_COLORS.length];
@@ -75,7 +75,9 @@ const Bay = ({ slot, thresholdCm }) => {
     return (
         <div
             className={`relative w-[104px] h-[196px] shrink-0 rounded-md border-x-4 border-t-4 ${border} bg-slate-700/60 flex flex-col items-center justify-end overflow-hidden transition-colors duration-500`}
-            title={sensor ? `${sensor.path} · ${distance ?? '—'} cm (threshold ${thresholdCm} cm)` : 'No sensor assigned to this bay'}
+            title={sensor
+                ? `${sensor.path} · ${distance ?? 'no echo'}${distance !== null ? ' cm' : ''} · ${source === 'device' ? 'state reported by the node' : `state from threshold ${thresholdCm} cm`}`
+                : 'No sensor assigned to this bay'}
         >
             {/* Emergency hatch */}
             {isEmergency && (
@@ -110,7 +112,7 @@ const Bay = ({ slot, thresholdCm }) => {
                     <p className="text-[10px] font-semibold tracking-wider text-slate-300">BAY</p>
                 )}
                 <p className="text-2xl font-black text-white leading-none">{isEmergency ? 'E' : bay}</p>
-                <p className="text-[10px] text-slate-300 mt-1 font-mono">{distance !== null ? `${distance} cm` : '—'}</p>
+                <p className="text-[10px] text-slate-300 mt-1 font-mono">{distance !== null ? `${distance} cm` : 'no echo'}</p>
             </div>
         </div>
     );
@@ -226,7 +228,7 @@ const ConfigPanel = ({ config, sensors, onSave, saving, saveError, canEdit, conf
 };
 
 export const ParkingDashboard = () => {
-    const { config, configSource, saveConfig, saving, saveError, sensors, slots, stats, deviceCounts, emergencyOccupied, history, connected, loading, lastUpdate } = useParking();
+    const { config, configSource, saveConfig, saving, saveError, sensors, slots, stats, deviceCounts, derivedThresholdCm, emergencyOccupied, history, connected, loading, lastUpdate } = useParking();
     // The node's counters may or may not include the emergency bay; accept either
     const emergencyOccupiedCount = stats.emergency?.state === 'occupied' ? 1 : 0;
     const emergencyFreeCount = stats.emergency?.state === 'free' ? 1 : 0;
@@ -278,6 +280,7 @@ export const ParkingDashboard = () => {
                     </h2>
                     <p className="text-sm text-slate-500 mt-1">
                         Live bay occupancy from ultrasonic sensors · {stats.sensorsDetected} sensor{stats.sensorsDetected === 1 ? '' : 's'} detected in Firebase
+                        {stats.fromDevice > 0 ? ` · ${stats.fromDevice} bay${stats.fromDevice === 1 ? '' : 's'} using the node's own status` : ''}
                         {lastUpdate ? ` · updated ${lastUpdate}` : ''}
                     </p>
                 </div>
@@ -344,7 +347,7 @@ export const ParkingDashboard = () => {
                         <React.Fragment key={idx}>
                             <div className="flex gap-2 items-end">
                                 <div className="w-8 text-slate-500 text-[10px] font-bold uppercase self-center -rotate-90 origin-center whitespace-nowrap">Entry →</div>
-                                {row.map((slot) => <Bay key={slot.bay} slot={slot} thresholdCm={config.thresholdCm} />)}
+                                {row.map((slot) => <Bay key={slot.bay} slot={slot} thresholdCm={derivedThresholdCm ?? config.thresholdCm} />)}
                             </div>
                             {idx === 0 && rows.length > 1 && (
                                 <div className="h-8 border-y border-dashed border-slate-500/60 flex items-center justify-center text-[10px] text-slate-400 uppercase tracking-[0.3em]">Drive aisle</div>
@@ -366,6 +369,7 @@ export const ParkingDashboard = () => {
                                         <th className="px-2 py-1">Path</th>
                                         <th className="px-2 py-1 text-right">Distance</th>
                                         <th className="px-2 py-1">State</th>
+                                        <th className="px-2 py-1">Decided by</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -373,16 +377,18 @@ export const ParkingDashboard = () => {
                                         <tr key={slot.bay} className="border-t border-slate-100">
                                             <td className="px-2 py-1.5 font-bold">{slot.isEmergency ? 'E' : slot.bay}</td>
                                             <td className="px-2 py-1.5 font-mono text-[11px] text-slate-600 break-all">{slot.sensor.path}</td>
-                                            <td className="px-2 py-1.5 text-right font-mono">{slot.distance ?? '—'} cm</td>
+                                            <td className="px-2 py-1.5 text-right font-mono">{slot.distance !== null ? `${slot.distance} cm` : 'no echo'}</td>
                                             <td className="px-2 py-1.5"><span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${STATE_META[slot.state].chip}`}>{STATE_META[slot.state].label}</span></td>
+                                            <td className="px-2 py-1.5 text-[10px] text-slate-500">{slot.source === 'device' ? 'node status' : slot.source === 'threshold' ? 'distance' : '—'}</td>
                                         </tr>
                                     ))}
                                     {sensors.filter((s) => !slots.some((slot) => slot.sensor?.path === s.path)).map((s) => (
                                         <tr key={s.path} className="border-t border-slate-100 text-slate-400">
                                             <td className="px-2 py-1.5">—</td>
                                             <td className="px-2 py-1.5 font-mono text-[11px] break-all">{s.path}</td>
-                                            <td className="px-2 py-1.5 text-right font-mono">{s.distance ?? '—'} cm</td>
+                                            <td className="px-2 py-1.5 text-right font-mono">{s.distance !== null ? `${s.distance} cm` : 'no echo'}</td>
                                             <td className="px-2 py-1.5 text-[10px]">unassigned</td>
+                                            <td className="px-2 py-1.5 text-[10px]">—</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -422,15 +428,24 @@ export const ParkingDashboard = () => {
                 configSource={configSource}
             />
 
-            <DashboardCard title="Firmware note">
-                <p className="text-sm text-slate-600">
-                    Each bay node should write its distance in centimetres to
-                    <span className="font-mono mx-1">parking/slots/&lt;n&gt;/distance</span> and the ambulance bay to
-                    <span className="font-mono mx-1">parking/emergency/distance</span>. A reading below the threshold ({config.thresholdCm} cm) marks the bay occupied.
-                    Any other key containing <span className="font-mono">ultrasonic</span> or <span className="font-mono">distance</span> is detected too, so the current
-                    <span className="font-mono mx-1">Agriculture/ultrasonicDistance</span> reading already appears as a bay.
-                    Defaults: {DEFAULT_PARKING_CONFIG.totalSlots} slots, bay {DEFAULT_PARKING_CONFIG.emergencySlot} for emergencies.
-                </p>
+            <DashboardCard title="How each bay is decided">
+                <div className="text-sm text-slate-600 space-y-2">
+                    <p>
+                        When a bay node publishes <span className="font-mono">status</span> (<span className="font-mono">FREE</span> / <span className="font-mono">OCCUPIED</span>) or
+                        <span className="font-mono mx-1">occupied</span>, that value is used as-is. The dashboard never second-guesses the node.
+                    </p>
+                    <p>
+                        Only a bay with no published state falls back to its distance:
+                        {derivedThresholdCm !== null
+                            ? <> occupied below <b>{derivedThresholdCm} cm</b>, a boundary learned from the bays this node has already labelled.</>
+                            : <> occupied below <b>{config.thresholdCm} cm</b> from Parking Setup.</>}
+                        A distance of 999 or more is read as no echo rather than a far wall.
+                    </p>
+                    <p className="text-slate-500">
+                        Paths: <span className="font-mono">parking/slot&lt;n&gt;/distance</span> and <span className="font-mono">emergency/slot/distance</span> are both detected,
+                        as is any key containing <span className="font-mono">ultrasonic</span>, <span className="font-mono">distance</span> or <span className="font-mono">sonar</span>.
+                    </p>
+                </div>
             </DashboardCard>
         </div>
     );

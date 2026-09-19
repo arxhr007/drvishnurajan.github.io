@@ -283,11 +283,16 @@ Energy values are treated as watt-hours produced or consumed in the last hour.
 Enter the number of slots, the occupied threshold (cm) and which bay is the ambulance/emergency bay in
 *Parking Setup*; admins can save the setup to `parking/config` so every viewer sees the same layout.
 
-- A bay is **occupied** when its sensor distance is below the threshold (default 60 cm), **free** above it.
-  A bay node may also publish `occupied: true/false` or `status: "FREE"/"OCCUPIED"` directly, which takes priority;
-  a distance of 999 or more is treated as "no echo". `parking/freeSlots` and `parking/occupiedSlots` from the node are
-  shown beside the dashboard's own counts as a cross-check. Until a setup is saved, the lot is sized to the number of
-  sensors found, with the emergency bay last.
+- **The node's own state always wins.** If a bay publishes `status: "FREE"/"OCCUPIED"` or `occupied: true/false`,
+  the dashboard shows that verbatim and never re-derives it from the distance.
+- Only a bay with no published state falls back to distance. The threshold is **learned** from the bays the node
+  has already labelled (midpoint between the closest free reading and the farthest occupied one); the Parking Setup
+  value is used only when nothing can be learned. These nodes read ~17 cm free and ~5 cm occupied, so the old fixed
+  60 cm default inverted every bay.
+- A distance of 999 or more is the firmware's "no echo" value and is treated as no reading, not as a far wall.
+- `parking/freeSlots` and `parking/occupiedSlots` from the node are shown beside the dashboard's own counts as a
+  cross-check (the node's counters exclude the emergency bay; both readings are accepted).
+- Until a setup is saved, the lot is sized to the number of sensors found, with the emergency bay last.
 - The **emergency bay** raises a red banner (optional audible alarm) and a critical alert on the Overview
   dashboard whenever it is occupied; otherwise it shows *Free*.
 - Free / occupied / occupancy % / sensors online are counted from the bays that have a reading.
