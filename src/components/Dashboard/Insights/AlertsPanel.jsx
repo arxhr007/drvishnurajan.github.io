@@ -3,6 +3,8 @@ import { AlertCircle, AlertTriangle, CheckCircle2, Info, BrainCircuit, Gauge } f
 import { useVillageInsights } from '../../../hooks/useVillageInsights';
 import { useAssets } from '../../../hooks/useAssets';
 import { useParking } from '../../../hooks/useParking';
+import { useVillageSensors } from '../../../hooks/useVillageSensors';
+import { whatsappLink, smsLink, buildAlertMessage, normalizePhone } from '../../../utils/alertChannels';
 
 const SEVERITY_STYLES = {
     critical: { wrap: 'bg-red-50 border-red-100', icon: 'text-red-500', title: 'text-red-700', text: 'text-red-600/90', chip: 'bg-red-100 text-red-700', Icon: AlertCircle },
@@ -22,6 +24,8 @@ export const AlertsPanel = ({ onNavigate, className = '' }) => {
     const { alerts, village } = useVillageInsights();
     const { assets } = useAssets();
     const { emergencyOccupied, stats: parkingStats, config: parkingConfig } = useParking();
+    const { alertConfig } = useVillageSensors();
+    const alertPhone = normalizePhone(alertConfig?.phone);
 
     const parkingAlerts = emergencyOccupied ? [{
         id: 'parking-emergency',
@@ -80,6 +84,12 @@ export const AlertsPanel = ({ onNavigate, className = '' }) => {
                                     </span>
                                 </div>
                                 <p className={`${style.text} text-xs leading-relaxed mt-1`}>{alert.message}</p>
+                                {alertPhone && alert.severity === 'critical' && (
+                                    <div className="mt-1.5 flex items-center gap-3 text-[10px] font-semibold">
+                                        <a href={whatsappLink(alertPhone, buildAlertMessage(alert, village?.name))} target="_blank" rel="noreferrer" onClick={(e) => e.stopPropagation()} className="text-emerald-700 hover:underline">Send on WhatsApp</a>
+                                        <a href={smsLink(alertPhone, buildAlertMessage(alert, village?.name))} onClick={(e) => e.stopPropagation()} className="text-slate-600 hover:underline">Send as SMS</a>
+                                    </div>
+                                )}
                             </div>
                         </button>
                     );

@@ -28,28 +28,37 @@ export const formatReading = (reading) => {
     return value.toLocaleString('en-IN', { maximumFractionDigits: 2 });
 };
 
-/** Pull-down to pick the UBA village whose telemetry is shown. */
+/** Pull-down to pick the site (campus or UBA village) whose telemetry is shown. */
 export const VillageSelector = ({ compact = false, className = '' }) => {
-    const { villages, selectedVillageId, setSelectedVillageId } = useVillageSensors();
+    const { sites, selectedVillageId, setSelectedVillageId } = useVillageSensors();
+    const campuses = sites.filter((s) => s.type === 'campus');
+    const villages = sites.filter((s) => s.type === 'village');
 
     return (
         <label
             className={`relative inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white shadow-sm hover:border-blue-300 transition-colors ${compact ? 'px-2.5 py-1.5' : 'px-3 py-2'} ${className}`}
-            title="Select UBA adopted village"
+            title="Select campus or UBA adopted village"
         >
             <MapPin size={compact ? 14 : 16} className="text-blue-600 shrink-0" />
-            {!compact && <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 shrink-0">Village</span>}
+            {!compact && <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 shrink-0">Site</span>}
             <select
                 value={selectedVillageId}
                 onChange={(event) => setSelectedVillageId(event.target.value)}
                 className={`appearance-none bg-transparent pr-5 font-semibold text-slate-800 outline-none cursor-pointer ${compact ? 'text-xs' : 'text-sm'}`}
-                aria-label="Select village"
+                aria-label="Select site"
             >
-                {villages.map((village) => (
-                    <option key={village.id} value={village.id}>
-                        {village.name}{village.deployment === 'live' ? ' · Live prototype' : ' · Planned'}
-                    </option>
-                ))}
+                <optgroup label="Campus">
+                    {campuses.map((site) => (
+                        <option key={site.id} value={site.id}>{site.name} · Prototype lab</option>
+                    ))}
+                </optgroup>
+                <optgroup label="UBA adopted villages">
+                    {villages.map((village) => (
+                        <option key={village.id} value={village.id}>
+                            {village.name}{village.deployment === 'live' ? ' · Live site' : ' · Planned'}
+                        </option>
+                    ))}
+                </optgroup>
             </select>
             <ChevronDown size={14} className="absolute right-2.5 pointer-events-none text-slate-400" />
         </label>

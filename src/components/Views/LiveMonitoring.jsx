@@ -347,7 +347,9 @@ const MetricCard = ({ reading, onClick }) => {
                                 </span>
                             )}
                         </div>
-                        <p className="text-xs text-slate-500 truncate font-mono" title={reading.path || 'Not published yet'}>{reading.key}</p>
+                        <p className="text-xs text-slate-500 truncate" title={reading.path || 'Not published yet'}>
+                            {reading.zoneName ? <span className="font-medium text-slate-600">{reading.zoneName}</span> : <span className="font-mono">{reading.key}</span>}
+                        </p>
                     </div>
                 </div>
                 <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider shrink-0 ml-2 ${style.badge}`}>
@@ -502,8 +504,8 @@ const MetricDetailView = ({ metricKey, onBack }) => {
                                 <MapPin size={20} />
                             </div>
                             <div>
-                                <p className="text-xs text-slate-500 font-semibold uppercase">Village</p>
-                                <p className="text-sm font-medium text-slate-800">{selectedVillage.name} · UBA adopted village</p>
+                                <p className="text-xs text-slate-500 font-semibold uppercase">{selectedVillage.type === 'campus' ? 'Campus block' : 'Village area'}</p>
+                                <p className="text-sm font-medium text-slate-800">{selectedVillage.name}{reading.zoneName ? ` · ${reading.zoneName}` : ''}</p>
                             </div>
                         </div>
 
@@ -591,7 +593,7 @@ const MetricDetailView = ({ metricKey, onBack }) => {
     );
 };
 
-const UbaBanner = ({ villages, selectedVillageId, onSelect }) => (
+const UbaBanner = ({ villages, campus, selectedVillageId, onSelect }) => (
     <div className="relative overflow-hidden rounded-2xl border border-indigo-100 bg-gradient-to-r from-indigo-50 via-white to-sky-50 p-4 shadow-sm">
         <div className="pointer-events-none absolute -top-10 right-10 h-32 w-32 rounded-full bg-indigo-300/25 blur-2xl" />
         <div className="relative flex items-start gap-3">
@@ -602,6 +604,19 @@ const UbaBanner = ({ villages, selectedVillageId, onSelect }) => (
                 <p className="text-xs font-bold uppercase tracking-wider text-indigo-800">{UBA_PROGRAMME.title}</p>
                 <p className="mt-1 text-sm text-slate-700">{UBA_PROGRAMME.description}</p>
                 <div className="mt-3 flex flex-wrap gap-2">
+                    {campus && (
+                        <button
+                            type="button"
+                            onClick={() => onSelect(campus.id)}
+                            className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all ${campus.id === selectedVillageId
+                                ? 'bg-slate-800 text-white border-slate-800 shadow'
+                                : 'bg-white text-slate-700 border-slate-300 hover:border-slate-500'}`}
+                            title={campus.fullName}
+                        >
+                            <Landmark size={11} /> {campus.name}
+                            <span className={`text-[9px] uppercase tracking-wider ${campus.id === selectedVillageId ? 'text-slate-300' : 'text-emerald-600'}`}>Prototype lab</span>
+                        </button>
+                    )}
                     {villages.map((village) => {
                         const active = village.id === selectedVillageId;
                         const live = village.deployment === 'live';
@@ -631,7 +646,7 @@ const VillageSummaryCard = ({ village, villagePath, villageUpdatedAt, hasData, s
         <div className="min-w-0">
             <div className="flex items-center gap-2">
                 <Radio size={16} className="text-blue-600" />
-                <h3 className="text-base font-bold text-slate-800">{village.name} · CPS prototype node</h3>
+                <h3 className="text-base font-bold text-slate-800">{village.name} · {village.type === 'campus' ? 'CPS laboratory site' : 'CPS field site'}</h3>
             </div>
             <p className="text-sm text-slate-500 mt-1">{village.description}</p>
         </div>
@@ -676,9 +691,10 @@ const PlannedVillageNotice = ({ village, onSelectLive }) => (
 export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
     const { assets, loading } = useAssets();
     const {
-        villages, selectedVillage, selectedVillageId, setSelectedVillageId,
+        sites, villages, selectedVillage, selectedVillageId, setSelectedVillageId,
         readings, hasData, villagePath, villageUpdatedAt, sensorDbUrl, lastSyncAt, loading: sensorsLoading
     } = useVillageSensors();
+    const campusSite = sites.find((s) => s.type === 'campus');
 
     const [selectedAssetId, setSelectedAssetId] = useState(null);
     const [selectedMetricKey, setSelectedMetricKey] = useState(null);
@@ -722,12 +738,14 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
 
     const filteredAssets = assets.filter((a) => matchesFilter(a.status !== 'offline'));
 
-    const groupSections = SENSOR_GROUPS.map((group) => ({
-        ...group,
-        items: metricsForGroup(group.id)
-            .map((metric) => readings[metric.key])
-            .filter((reading) => reading && matchesFilter(reading.value !== null && reading.value !== undefined))
-    }));
+    const groupSections = SENSOR_GROUPS.map((group) => {
+        const all = metricsForGroup(group.id).map((metric) => readings[metric.key]).filter(Boolean);
+        return {
+            ...group,
+            hasLive: all.some((reading) => reading.value !== null && reading.value !== undefined),
+            items: all.filter((reading) => matchesFilter(reading.value !== null && reading.value !== undefined))
+        };
+    }).filter((group) => group.id !== 'power' || group.hasLive || selectedVillage?.type === 'campus');
 
     if (loading && sensorsLoading) {
         return <div className="p-6 flex items-center justify-center h-full text-slate-500">Loading live sensor data...</div>;
@@ -800,7 +818,7 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
 
             <div className="flex-1 overflow-y-auto pr-2">
                 <div className="space-y-6 pb-6">
-                    <UbaBanner villages={villages} selectedVillageId={selectedVillageId} onSelect={setSelectedVillageId} />
+                    <UbaBanner villages={villages} campus={campusSite} selectedVillageId={selectedVillageId} onSelect={setSelectedVillageId} />
 
                     {isLiveVillage ? (
                         <>

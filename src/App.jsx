@@ -12,9 +12,11 @@ import { WaterSystem } from './components/Views/WaterSystem';
 import { SustainabilityDashboard } from './components/Views/SustainabilityDashboard';
 import { WasteManagement } from './components/Views/WasteManagement';
 import { ParkingDashboard } from './components/Views/ParkingDashboard';
+import { SiteConfig } from './components/Views/SiteConfig';
 import { SplashScreen } from './components/Layout/SplashScreen';
 import { AssetsProvider } from './context/AssetsContext';
 import { VillageSensorsProvider } from './context/VillageSensorsContext';
+import { AlertDispatchProvider } from './context/AlertDispatchContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 
@@ -53,6 +55,7 @@ function AppContent() {
             case 'incidents': return <FullMapView initialLayer="incidents" onNavigate={handleNavigate} />;
             case 'soil': return <SoilMonitoring />;
             case 'parking': return <ParkingDashboard />;
+            case 'site-config': return <SiteConfig />;
             case 'settings': return <SystemConfig />;
             default: return <Dashboard onNavigate={handleNavigate} />;
         }
@@ -63,9 +66,11 @@ function AppContent() {
             {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
             <AssetsProvider>
                 <VillageSensorsProvider>
-                    <MainLayout activeView={activeView} setActiveView={setActiveView} onNavigate={handleNavigate}>
-                        {renderView()}
-                    </MainLayout>
+                    <AlertDispatchProvider>
+                        <MainLayout activeView={activeView} setActiveView={setActiveView} onNavigate={handleNavigate}>
+                            {renderView()}
+                        </MainLayout>
+                    </AlertDispatchProvider>
                 </VillageSensorsProvider>
             </AssetsProvider>
         </>

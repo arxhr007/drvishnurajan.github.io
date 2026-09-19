@@ -1,29 +1,30 @@
 // ---------------------------------------------------------------------------
-// Village field-sensor schema (RPS Sahrdaya Realtime Database)
+// Field-sensor schema (RPS Sahrdaya Realtime Database)
 //
 // Canonical layout written by the field nodes:
 //
-//   villages/<villageId>/agriculture/{ soil_moisture, temperature, humidity }
-//   villages/<villageId>/water/{ ph, rain_intensity, water_level_dam,
-//                                water_level_tank, pump, turbidity }
-//   villages/<villageId>/energy/{ solar_output_wh, windmill_output_wh,
-//                                 household_consumption_wh }
-//   villages/<villageId>/updated_at   (epoch seconds/millis or ISO string)
+//   villages/<siteId>/agriculture/{ soil_moisture, temperature, humidity }
+//   villages/<siteId>/water/{ ph, rain_intensity, rain_detected, water_level_dam,
+//                             water_level_tank, pump, turbidity }
+//   villages/<siteId>/energy/{ solar_output_wh, windmill_output_wh,
+//                              household_consumption_wh }
+//   villages/<siteId>/power/{ solar_voltage, solar_current, solar_power, total_power, ... }
+//   villages/<siteId>/updated_at   (epoch seconds/millis or ISO string)
 //
-// Optional map placement (otherwise each sensor is drawn at the village
-// centre plus its default `offset`):
+// Optional map placement (otherwise a sensor is drawn in its default zone):
 //
-//   villages/<villageId>/center/{ lat, lng }              – village centre
-//   villages/<villageId>/locations/<metricKey>/{ lat, lng } – per-sensor spot
-//   (a reading may also carry lat/lng: { value: 42, lat: 10.26, lng: 76.23 })
+//   config/sensorPlacement/<path with / replaced by ~> = { site, zone }
+//   config/prototypeSite = "<siteId>"   – owner of unplaced flat-root readings
+//   config/zones/<siteId>/<zoneId>     = { lat, lng } – move a block/area
+//   villages/<siteId>/center/{ lat, lng }, villages/<siteId>/locations/<metricKey>/{ lat, lng }
 //
 // The reader is deliberately forgiving: keys are matched case-insensitively
 // after stripping spaces, dashes and underscores; group nesting is optional;
 // values may be plain numbers, numeric strings ("42.5%"), on/off strings or
-// `{ value, timestamp }` objects. A flat root (no village wrapper) is treated
-// as the default prototype village (Puthenchira).
+// `{ value, timestamp }` objects. Flat keys at the root (how the prototype
+// firmware writes today) belong to the prototype site unless placed elsewhere.
 // ---------------------------------------------------------------------------
-import { DEFAULT_VILLAGE_ID, VILLAGES } from './villages.js';
+import { DEFAULT_SITE_ID, SITES } from './villages.js';
 
 // Analog pH board calibration (pH = PH_SLOPE × volts + PH_OFFSET). Adjust after a 2-point buffer test.
 export const PH_SLOPE = 3.5;
@@ -32,31 +33,32 @@ export const PH_OFFSET = 0;
 export const SENSOR_GROUPS = [
     { id: 'agriculture', label: 'Agriculture', tone: 'emerald', icon: 'Sprout' },
     { id: 'water', label: 'Water Management', tone: 'cyan', icon: 'Droplets' },
-    { id: 'energy', label: 'Energy Management', tone: 'amber', icon: 'Zap' }
+    { id: 'energy', label: 'Energy Management', tone: 'amber', icon: 'Zap' },
+    { id: 'power', label: 'Node Power', tone: 'violet', icon: 'Plug' }
 ];
 
+// `offset` = default map position relative to the site centre (used only when
+// the site has no matching zone). `defaultZone` = block/area the sensor is
+// drawn in until an admin places it (config/sensorPlacement).
 export const SENSOR_METRICS = [
     // ── Agriculture ────────────────────────────────────────────────────────
-    // `offset` = default map position relative to the village centre, in
-    // degrees [dLat, dLng] (0.001° ≈ 110 m). Used when the node publishes no
-    // coordinates of its own.
     {
         key: 'soil_moisture', group: 'agriculture', label: 'Soil Moisture', unit: '%', icon: 'Droplets',
         aliases: ['soil_moisture_value', 'soilmoisture', 'moisture', 'soil_moisture_1', 'moisture_percent', 'moisturePercent', 'soil_moisture_percent', 'moisture_value', 'soil_moisture_pct'],
         range: { min: 20, max: 80, minMsg: 'Soil is dry – irrigation advised', maxMsg: 'Soil is water-logged' },
-        offset: [-0.0018, 0.0022], site: 'Paddy field – east'
+        offset: [-0.0018, 0.0022], defaultZone: { village: 'paddy_field', campus: 'bio_block' }
     },
     {
         key: 'temperature', group: 'agriculture', label: 'Temperature', unit: '°C', icon: 'Thermometer',
         aliases: ['temp', 'air_temperature', 'field_temperature', 'temperature_value'],
         range: { max: 38, criticalMax: 45, maxMsg: 'High field temperature' },
-        offset: [-0.0024, 0.0030], site: 'Weather mast – field edge'
+        offset: [-0.0024, 0.0030], defaultZone: { village: 'weather_mast', campus: 'bio_block' }
     },
     {
         key: 'humidity', group: 'agriculture', label: 'Humidity', unit: '%', icon: 'Wind',
         aliases: ['air_humidity', 'hum', 'humidity_value', 'relative_humidity'],
         range: { min: 25, max: 90, minMsg: 'Air is very dry', maxMsg: 'Very high humidity' },
-        offset: [-0.0012, 0.0036], site: 'Weather mast – field edge'
+        offset: [-0.0012, 0.0036], defaultZone: { village: 'weather_mast', campus: 'bio_block' }
     },
 
     // ── Water management ───────────────────────────────────────────────────
@@ -64,71 +66,113 @@ export const SENSOR_METRICS = [
         key: 'ph', group: 'water', label: 'pH Level', unit: 'pH', icon: 'FlaskConical',
         aliases: ['ph_value', 'ph_sensor', 'ph_sensor_value', 'water_ph', 'ph_level'],
         rawAliases: ['ph_raw', 'ph_adc', 'ph_analog'],
-        // A value above 14 can only be a raw 12-bit ADC count from an analog pH board
-        // (PH-4502C class): V = raw / 4095 * 3.3, pH ≈ 3.5 × V. Calibrate PH_SLOPE/PH_OFFSET with buffers.
         rawMax: 14,
         fromRaw: (raw) => Math.round(Math.min(14, Math.max(0, PH_SLOPE * (raw / 4095) * 3.3 + PH_OFFSET)) * 100) / 100,
         range: { min: 6.5, max: 8.5, criticalMin: 5, criticalMax: 10, minMsg: 'Water is acidic', maxMsg: 'Water is alkaline' },
-        offset: [0.0016, -0.0010], site: 'Water quality station'
+        offset: [0.0016, -0.0010], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
     },
     {
         key: 'rain_intensity', group: 'water', label: 'Rain Intensity', unit: '%', icon: 'CloudRain',
         aliases: ['rain', 'rainfall', 'rain_intensity_value', 'rain_percent', 'rain_index'],
-        // Raw 12-bit ADC from an analog rain plate: 4095 = dry, lower = wetter
         rawAliases: ['rain_value', 'rainValue', 'rain_raw', 'rain_analog', 'rain_adc', 'rain_sensor'],
         fromRaw: (raw) => Math.round(Math.min(100, Math.max(0, (4095 - raw) / 4095 * 100))),
         range: { max: 30, criticalMax: 60, maxMsg: 'Heavy rainfall detected' },
-        offset: [0.0004, 0.0008], site: 'Rain gauge – panchayat office'
+        offset: [0.0004, 0.0008], defaultZone: { village: 'panchayat_office', campus: 'main_block' }
     },
     {
         key: 'rain_detected', group: 'water', label: 'Rain Detected', unit: '', icon: 'CloudRain', binary: true,
         aliases: ['rainDetected', 'is_raining', 'raining', 'rain_status', 'rain_flag'],
-        offset: [0.0006, 0.0014], site: 'Rain gauge – panchayat office'
+        offset: [0.0006, 0.0014], defaultZone: { village: 'panchayat_office', campus: 'main_block' }
     },
     {
         key: 'water_level_dam', group: 'water', label: 'Water Level – Dam', unit: '%', icon: 'Waves',
         aliases: ['dam_level', 'dam_water_level', 'dam', 'water_level_dam_value'],
         range: { max: 85, criticalMax: 95, maxMsg: 'Dam nearing full capacity' },
-        offset: [-0.0006, -0.0038], site: 'Check dam – west'
+        offset: [-0.0006, -0.0038], defaultZone: { village: 'check_dam', campus: 'campus_grounds' }
     },
     {
         key: 'water_level_tank', group: 'water', label: 'Water Level – Tank', unit: '%', icon: 'Cylinder',
         aliases: ['tank_level', 'tank_water_level', 'water_level_water_tank', 'tank', 'water_tank_level', 'waterLevel', 'water_level'],
         range: { min: 20, criticalMin: 10, minMsg: 'Tank level low – refill needed' },
-        offset: [0.0026, -0.0002], site: 'Overhead tank – north'
+        offset: [0.0026, -0.0002], defaultZone: { village: 'overhead_tank', campus: 'main_block' }
     },
     {
         key: 'pump', group: 'water', label: 'Water Pump', unit: '', icon: 'Power', binary: true, controllable: true,
         aliases: ['water_pump', 'pump_status', 'pump_state', 'water_pump_on_off', 'pump_on_off', 'motor'],
-        offset: [0.0020, 0.0012], site: 'Pump house'
+        offset: [0.0020, 0.0012], defaultZone: { village: 'pump_house', campus: 'main_block' }
     },
     {
         key: 'turbidity', group: 'water', label: 'Turbidity', unit: 'NTU', icon: 'Eye',
         aliases: ['turbidity_value', 'turbidity_sensor', 'water_turbidity', 'turbidity_value_of_water'],
         rawAliases: ['turbidity_raw', 'turbidity_adc', 'turbidity_analog'],
-        // Analog turbidity boards output a high voltage for clear water: 4095 = clear (0 NTU).
-        // Values above 300 are treated as raw counts and mapped to a 0–100 NTU scale.
         rawMax: 300,
         fromRaw: (raw) => Math.round(Math.min(100, Math.max(0, (4095 - raw) / 4095 * 100)) * 10) / 10,
         range: { max: 5, criticalMax: 10, maxMsg: 'Water is turbid – check filtration' },
-        offset: [0.0010, -0.0020], site: 'Water quality station'
+        offset: [0.0010, -0.0020], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
     },
 
-    // ── Energy management ──────────────────────────────────────────────────
+    // ── Energy management (Wh over the last hour) ─────────────────────────
     {
         key: 'solar_output_wh', group: 'energy', label: 'Solar Power Output', unit: 'Wh', icon: 'Sun', flow: 'producer',
-        aliases: ['solar', 'solar_output', 'solar_power', 'solar_wh', 'solar_power_output', 'solar_power_output_in_wh', 'solar_energy'],
-        offset: [-0.0030, -0.0012], site: 'Solar array – south'
+        aliases: ['solar', 'solar_output', 'solar_wh', 'solar_power_output', 'solar_power_output_in_wh', 'solar_energy', 'solar_output_wh'],
+        offset: [-0.0030, -0.0012], defaultZone: { village: 'solar_array', campus: 'main_block' }
     },
     {
         key: 'windmill_output_wh', group: 'energy', label: 'Windmill Power Output', unit: 'Wh', icon: 'Wind', flow: 'producer',
         aliases: ['wind', 'windmill', 'wind_output', 'windmill_output', 'wind_power', 'windmill_power', 'windmill_power_output', 'windmill_power_output_in_wh', 'wind_energy'],
-        offset: [0.0008, 0.0042], site: 'Windmill – ridge east'
+        offset: [0.0008, 0.0042], defaultZone: { village: 'windmill_ridge', campus: 'campus_grounds' }
     },
     {
         key: 'household_consumption_wh', group: 'energy', label: 'Household Consumption', unit: 'Wh', icon: 'House', flow: 'consumer',
         aliases: ['household', 'consumption', 'household_consumption', 'household_conception', 'household_conception_wh', 'household_consumption_wh', 'load', 'household_load', 'house_consumption'],
-        offset: [-0.0004, 0.0014], site: 'Model household'
+        offset: [-0.0004, 0.0014], defaultZone: { village: 'model_household', campus: 'boys_hostel' }
+    },
+
+    // ── Node power monitor (prototype: solar-fed sensor node) ──────────────
+    {
+        key: 'solar_voltage', group: 'power', label: 'Solar Voltage', unit: 'V', icon: 'Sun',
+        aliases: ['solar_v', 'panel_voltage', 'pv_voltage'],
+        offset: [-0.0028, -0.0008], defaultZone: { village: 'solar_array', campus: 'main_block' }
+    },
+    {
+        key: 'solar_current', group: 'power', label: 'Solar Current', unit: 'mA', icon: 'Sun',
+        aliases: ['solar_i', 'panel_current', 'pv_current'],
+        offset: [-0.0028, -0.0004], defaultZone: { village: 'solar_array', campus: 'main_block' }
+    },
+    {
+        key: 'solar_power', group: 'power', label: 'Solar Power', unit: 'W', icon: 'Sun',
+        aliases: ['panel_power', 'pv_power', 'solar_watts'],
+        offset: [-0.0028, 0], defaultZone: { village: 'solar_array', campus: 'main_block' }
+    },
+    {
+        key: 'total_power', group: 'power', label: 'Node Power Draw', unit: 'W', icon: 'Plug',
+        aliases: ['node_power', 'total_watts', 'power_total', 'system_power'],
+        offset: [-0.0026, 0.0004], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
+    },
+    {
+        key: 'led_power', group: 'power', label: 'LED Power', unit: 'W', icon: 'Plug',
+        aliases: ['led_watts', 'light_power'],
+        offset: [-0.0026, 0.0008], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
+    },
+    {
+        key: 'ph_sensor_power', group: 'power', label: 'pH Sensor Power', unit: 'W', icon: 'Plug',
+        aliases: ['ph_power'],
+        offset: [-0.0026, 0.0012], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
+    },
+    {
+        key: 'rain_sensor_power', group: 'power', label: 'Rain Sensor Power', unit: 'W', icon: 'Plug',
+        aliases: ['rain_power'],
+        offset: [-0.0026, 0.0016], defaultZone: { village: 'panchayat_office', campus: 'main_block' }
+    },
+    {
+        key: 'turbidity_power', group: 'power', label: 'Turbidity Sensor Power', unit: 'W', icon: 'Plug',
+        aliases: ['turbidity_sensor_power'],
+        offset: [-0.0026, 0.0020], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
+    },
+    {
+        key: 'water_level_power', group: 'power', label: 'Level Sensor Power', unit: 'W', icon: 'Plug',
+        aliases: ['water_level_sensor_power', 'level_sensor_power', 'tank_sensor_power'],
+        offset: [-0.0026, 0.0024], defaultZone: { village: 'overhead_tank', campus: 'main_block' }
     }
 ];
 
@@ -138,6 +182,10 @@ export const metricsForGroup = (groupId) => SENSOR_METRICS.filter((metric) => me
 
 // ── Key normalisation ────────────────────────────────────────────────────────
 export const normKey = (key) => String(key ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** Firebase keys cannot contain "/", so a sensor path is stored with "~" instead. */
+export const pathKey = (path) => String(path ?? '').replace(/\//g, '~');
+export const pathFromKey = (key) => String(key ?? '').replace(/~/g, '/');
 
 const METRIC_LOOKUP = new Map();      // normalised key -> metric key
 const RAW_ALIAS_LOOKUP = new Set();   // normalised keys that carry a raw ADC value needing `fromRaw`
@@ -165,6 +213,19 @@ const TIMESTAMP_KEYS = new Set(['timestamp', 'updatedat', 'lastupdated', 'lastup
 const LOCATION_MAP_KEYS = new Set(['locations', 'sensorlocations', 'positions', 'coords', 'geo']);
 const CENTER_KEYS = new Set(['center', 'centre', 'location', 'position', 'gps']);
 const VILLAGE_CONTAINERS = ['villages', 'village', 'sites', 'data'];
+// Root keys that never hold village telemetry
+const RESERVED_ROOT_KEYS = new Set(['config', 'alerts', 'parking', 'emergency', 'categories', 'assets']);
+
+const SITE_NAME_KEYS = new Set(SITES.flatMap((s) => [normKey(s.id), normKey(s.name), normKey(s.fullName || '')]).filter(Boolean));
+const CONTAINER_KEYS = new Set(VILLAGE_CONTAINERS.map(normKey));
+
+const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+const findKeyCI = (obj, wanted) => {
+    if (!isPlainObject(obj)) return undefined;
+    const target = normKey(wanted);
+    return Object.keys(obj).find((key) => normKey(key) === target);
+};
 
 /** Accepts [lat, lng], { lat, lng }, { latitude, longitude } or "lat,lng". */
 export const parseLatLng = (raw) => {
@@ -188,18 +249,10 @@ export const parseLatLng = (raw) => {
     return [lat, lng];
 };
 
-/** Default map position of a metric: village centre + metric offset. */
+/** Default map position of a metric: site centre + metric offset. */
 export const offsetCoords = (center, offset) => {
     if (!center) return null;
     return [center[0] + (offset?.[0] || 0), center[1] + (offset?.[1] || 0)];
-};
-
-const isPlainObject = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-
-const findKeyCI = (obj, wanted) => {
-    if (!isPlainObject(obj)) return undefined;
-    const target = normKey(wanted);
-    return Object.keys(obj).find((key) => normKey(key) === target);
 };
 
 // ── Value parsing ────────────────────────────────────────────────────────────
@@ -248,7 +301,7 @@ export const evaluateMetric = (metric, value) => {
         return { status: 'offline', message: 'Waiting for the field node to publish a reading' };
     }
     if (metric.binary) {
-        return { status: 'normal', message: value ? `${metric.label} is running` : `${metric.label} is stopped` };
+        return { status: 'normal', message: value ? `${metric.label} is on` : `${metric.label} is off` };
     }
     const range = metric.range;
     if (!range) return { status: 'normal', message: 'Informational reading' };
@@ -283,67 +336,82 @@ export const describeRange = (metric) => {
 // ── Node resolution & normalisation ──────────────────────────────────────────
 
 /**
- * Locate the sub-tree holding a village's readings inside the root snapshot.
- * Returns `{ node, path }` or null when the village has no data.
+ * Inspect the root: which container keys (villages/, village/, …) actually hold
+ * site sub-trees, and which root keys must be skipped by the flat-root parser.
+ * A container with no known site inside (e.g. village/water_management from the
+ * prototype firmware) is treated as flat prototype data, not as a site wrapper.
  */
-export const resolveVillageNode = (root, village) => {
-    if (!isPlainObject(root)) return null;
-
-    for (const container of VILLAGE_CONTAINERS) {
-        const containerKey = findKeyCI(root, container);
-        if (!containerKey || !isPlainObject(root[containerKey])) continue;
-        const villageKey = findKeyCI(root[containerKey], village.id) || findKeyCI(root[containerKey], village.name);
-        if (villageKey) return { node: root[containerKey][villageKey], path: `${containerKey}/${villageKey}` };
-        return null; // a village container exists but this village is not in it
+const inspectRoot = (root) => {
+    const skip = new Set(RESERVED_ROOT_KEYS);
+    const containers = [];
+    if (!isPlainObject(root)) return { skip, containers };
+    for (const key of Object.keys(root)) {
+        const nk = normKey(key);
+        if (SITE_NAME_KEYS.has(nk)) { skip.add(nk); continue; }
+        if (CONTAINER_KEYS.has(nk) && isPlainObject(root[key])) {
+            const holdsSite = Object.keys(root[key]).some((child) => SITE_NAME_KEYS.has(normKey(child)));
+            if (holdsSite) { containers.push(key); skip.add(nk); }
+        }
     }
-
-    const villageKey = findKeyCI(root, village.id) || findKeyCI(root, village.name);
-    if (villageKey && isPlainObject(root[villageKey])) return { node: root[villageKey], path: villageKey };
-
-    // Flat root (no village wrapper) belongs to the prototype site.
-    if (village.id === DEFAULT_VILLAGE_ID) return { node: root, path: '' };
-    return null;
+    return { skip, containers };
 };
 
-const VILLAGE_NAME_KEYS = new Set(VILLAGES.flatMap((v) => [normKey(v.id), normKey(v.name)]));
-const CONTAINER_KEYS = new Set(VILLAGE_CONTAINERS.map(normKey));
+/**
+ * Ownership rule for a reading found at `path`: an explicit placement wins,
+ * otherwise the reading belongs to the source's default owner.
+ */
+const makeAccept = (siteId, defaultOwnerId, placement) => (path) => {
+    const placed = placement?.[pathKey(path)];
+    if (placed && placed.site) return placed.site === siteId;
+    return defaultOwnerId === siteId;
+};
 
 /**
- * All places a village's readings may live, in priority order:
- *   1. villages/<id>   (or any other container)
- *   2. <id> at the root
- *   3. for the prototype village: flat keys at the root (skipping containers
- *      and other villages), which is how the ESP32 firmware currently writes.
- * Sources are merged, first match wins per metric.
+ * All places a site's readings may live, in priority order:
+ *   1. <container>/<siteId>  (villages/puthenchira, …) – default owner = that site
+ *   2. <siteId> at the root
+ *   3. flat keys at the root (prototype firmware) – default owner = prototypeSiteId
+ * Any reading can be re-assigned to another site through config/sensorPlacement.
  */
-export const resolveVillageSources = (root, village) => {
-    if (!isPlainObject(root)) return [];
+export const resolveVillageSources = (root, site, { placement = {}, prototypeSiteId = DEFAULT_SITE_ID } = {}) => {
+    if (!isPlainObject(root) || !site) return [];
+    const { skip, containers } = inspectRoot(root);
     const sources = [];
 
-    for (const container of VILLAGE_CONTAINERS) {
-        const containerKey = findKeyCI(root, container);
-        if (!containerKey || !isPlainObject(root[containerKey])) continue;
-        const villageKey = findKeyCI(root[containerKey], village.id) || findKeyCI(root[containerKey], village.name);
-        if (villageKey && isPlainObject(root[containerKey][villageKey])) {
-            sources.push({ node: root[containerKey][villageKey], path: `${containerKey}/${villageKey}` });
+    // Every site may receive placed readings from every other site's container
+    for (const containerKey of containers) {
+        for (const ownerSite of SITES) {
+            const ownerKey = findKeyCI(root[containerKey], ownerSite.id) || findKeyCI(root[containerKey], ownerSite.name);
+            if (!ownerKey || !isPlainObject(root[containerKey][ownerKey])) continue;
+            sources.push({
+                node: root[containerKey][ownerKey],
+                path: `${containerKey}/${ownerKey}`,
+                accept: makeAccept(site.id, ownerSite.id, placement),
+                ownerId: ownerSite.id
+            });
         }
     }
 
-    const villageKey = findKeyCI(root, village.id) || findKeyCI(root, village.name);
-    if (villageKey && isPlainObject(root[villageKey])) sources.push({ node: root[villageKey], path: villageKey });
-
-    if (village.id === DEFAULT_VILLAGE_ID) {
-        sources.push({ node: root, path: '', skip: new Set([...CONTAINER_KEYS, ...VILLAGE_NAME_KEYS]) });
+    for (const ownerSite of SITES) {
+        const ownerKey = findKeyCI(root, ownerSite.id) || findKeyCI(root, ownerSite.name);
+        if (ownerKey && isPlainObject(root[ownerKey])) {
+            sources.push({ node: root[ownerKey], path: ownerKey, accept: makeAccept(site.id, ownerSite.id, placement), ownerId: ownerSite.id });
+        }
     }
-    return sources;
+
+    // Flat root (prototype firmware)
+    sources.push({ node: root, path: '', skip, accept: makeAccept(site.id, prototypeSiteId, placement), ownerId: prototypeSiteId });
+
+    // Sources owned by this site first so its own readings win ties
+    return sources.sort((a, b) => Number(b.ownerId === site.id) - Number(a.ownerId === site.id));
 };
 
 /**
- * Flatten a village node into
+ * Flatten a node into
  * `{ readings: { [metricKey]: { value, raw, path, timestamp?, coords? } }, updatedAt, found, locations, center }`.
- * `skip` = normalised top-level keys to ignore (used for the flat root source).
+ * `skip` = normalised top-level keys to ignore; `accept(path)` = ownership filter.
  */
-export const normalizeVillageNode = (node, basePath = '', skip = null) => {
+export const normalizeVillageNode = (node, basePath = '', skip = null, accept = null) => {
     const readings = {};
     const locations = {};
     let updatedAt = null;
@@ -358,6 +426,7 @@ export const normalizeVillageNode = (node, basePath = '', skip = null) => {
             const metricKey = METRIC_LOOKUP.get(nk);
 
             if (metricKey) {
+                if (accept && !accept(childPath)) continue;
                 if (readings[metricKey] === undefined) { // first match wins
                     const metric = METRIC_BY_KEY[metricKey];
                     let value = parseSensorValue(metric, raw);
@@ -382,7 +451,6 @@ export const normalizeVillageNode = (node, basePath = '', skip = null) => {
             }
 
             if (LOCATION_MAP_KEYS.has(nk) && isPlainObject(raw)) {
-                // Map of metric key -> lat/lng
                 for (const [locKey, locRaw] of Object.entries(raw)) {
                     const locMetric = METRIC_LOOKUP.get(normKey(locKey));
                     const coords = parseLatLng(locRaw);
@@ -409,7 +477,7 @@ export const normalizeVillageNode = (node, basePath = '', skip = null) => {
 export const normalizeVillageSources = (sources) => {
     const merged = { readings: {}, updatedAt: null, found: 0, locations: {}, center: null, path: null, paths: [] };
     sources.forEach((source) => {
-        const part = normalizeVillageNode(source.node, source.path, source.skip || null);
+        const part = normalizeVillageNode(source.node, source.path, source.skip || null, source.accept || null);
         let used = false;
         Object.entries(part.readings).forEach(([key, entry]) => {
             if (merged.readings[key] === undefined) { merged.readings[key] = entry; used = true; }
@@ -422,9 +490,52 @@ export const normalizeVillageSources = (sources) => {
         if (used) merged.paths.push(source.path === '' ? '/' : `/${source.path}`);
     });
     merged.found = Object.keys(merged.readings).length;
-    merged.path = merged.paths.length ? merged.paths.join(' + ') : null;
+    merged.path = merged.paths.length ? [...new Set(merged.paths)].join(' + ') : null;
     return merged;
 };
 
+/**
+ * Every sensor path in the database that matches a known metric, with its
+ * default owner. Used by the Site & Alerts configuration screen.
+ */
+export const collectMetricPaths = (root, { prototypeSiteId = DEFAULT_SITE_ID } = {}) => {
+    const out = [];
+    if (!isPlainObject(root)) return out;
+    const { skip, containers } = inspectRoot(root);
+
+    const walk = (obj, path, depth, ownerId) => {
+        if (!isPlainObject(obj) || isOfflineNode(obj)) return;
+        for (const [key, raw] of Object.entries(obj)) {
+            const nk = normKey(key);
+            if (depth === 0 && path === '' && skip.has(nk)) continue;
+            const childPath = path ? `${path}/${key}` : key;
+            const metricKey = METRIC_LOOKUP.get(nk);
+            if (metricKey) {
+                const metric = METRIC_BY_KEY[metricKey];
+                let value = parseSensorValue(metric, raw);
+                const isRawCount = RAW_ALIAS_LOOKUP.has(nk) || (metric.rawMax !== undefined && value !== null && value > metric.rawMax);
+                if (value !== null && isRawCount && typeof metric.fromRaw === 'function') value = metric.fromRaw(value);
+                out.push({ path: childPath, key: pathKey(childPath), metricKey, value, defaultOwnerId: ownerId });
+                continue;
+            }
+            if (TIMESTAMP_KEYS.has(nk) || LOCATION_MAP_KEYS.has(nk) || CENTER_KEYS.has(nk)) continue;
+            if (isPlainObject(raw) && depth < 3) walk(raw, childPath, depth + 1, ownerId);
+        }
+    };
+
+    for (const containerKey of containers) {
+        for (const site of SITES) {
+            const ownerKey = findKeyCI(root[containerKey], site.id) || findKeyCI(root[containerKey], site.name);
+            if (ownerKey && isPlainObject(root[containerKey][ownerKey])) walk(root[containerKey][ownerKey], `${containerKey}/${ownerKey}`, 0, site.id);
+        }
+    }
+    for (const site of SITES) {
+        const ownerKey = findKeyCI(root, site.id) || findKeyCI(root, site.name);
+        if (ownerKey && isPlainObject(root[ownerKey])) walk(root[ownerKey], ownerKey, 0, site.id);
+    }
+    walk(root, '', 0, prototypeSiteId);
+    return out;
+};
+
 /** Path used when the dashboard has to write a value the node has not published yet. */
-export const defaultMetricPath = (villageId, metric) => `villages/${villageId}/${metric.group}/${metric.key}`;
+export const defaultMetricPath = (siteId, metric) => `villages/${siteId}/${metric.group}/${metric.key}`;

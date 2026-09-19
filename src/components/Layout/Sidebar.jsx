@@ -12,7 +12,8 @@ import {
     HeartPulse,
     Sprout,
     Trash2,
-    SquareParking
+    SquareParking,
+    BellRing
 } from 'lucide-react';
 
 import { useAuth } from '../../context/AuthContext';
@@ -95,6 +96,14 @@ export const Sidebar = ({ activeView = 'dashboard', onNavigate, isOpen, onClose 
                         disabled={!isAdmin}
                         title={!isAdmin ? "Admin access needed (sahrdaya.ac.in)" : ""}
                         onClick={() => { if (isAdmin) { onNavigate('settings'); onClose?.(); } }}
+                    />
+                    <NavItem
+                        icon={BellRing}
+                        label="Site & Alerts"
+                        active={activeView === 'site-config'}
+                        disabled={!isAdmin}
+                        title={!isAdmin ? "Admin access needed (sahrdaya.ac.in)" : ""}
+                        onClick={() => { if (isAdmin) { onNavigate('site-config'); onClose?.(); } }}
                     />
                 </nav>
             </aside>

@@ -9,6 +9,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "simulate:sensors": "node scripts/simulate-sensors.mjs",
+    "alert:relay": "node scripts/alert-relay.mjs",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist -b gh-pages"
   },

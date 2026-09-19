@@ -307,3 +307,44 @@ Firmware layout (centimetres):
 Any other numeric key whose name contains `ultrasonic`, `distance` or `sonar` (for example the current
 `Agriculture/ultrasonicDistance`) is detected as well and assigned to the next free bay in path order;
 the mapping can be overridden per bay in Parking Setup.
+
+### Sites: Sahrdaya campus and UBA villages
+
+The site pull-down (Dashboard, City Map, Live Monitoring, every domain page) now lists **Sahrdaya Campus**
+alongside the five UBA villages. The campus is where the prototype nodes physically sit, so by default every
+reading published at the root of the database belongs to it. The City Map draws the campus with real building
+footprints from OpenStreetMap (Main Block, Decennial Block, Auditorium, Knowledge Center, Chapel, Mess, Workshop,
+Indoor Stadium, SIMS, Boys Hostel and the four girls' hostels); Bio Block and the Auditorium/Hostel Annex
+outlines are approximate until confirmed. Villages get named areas (paddy field, weather mast, check dam,
+overhead tank, pump house, solar array, windmill ridge, model household, panchayat office, anganwadi).
+
+**Site & Alerts** (sidebar, admins) is where sensors are placed and alerts are configured. Everything it
+writes lives under `config/` in the sensor database so all viewers share it:
+
+| Path | Purpose |
+| --- | --- |
+| `config/sensorPlacement/<path with / as ~>` = `{ site, zone }` | Which site and block/area a Firebase sensor path belongs to |
+| `config/prototypeSite` | Site that owns root-level readings that have not been placed (default `campus`) |
+| `config/zones/<site>/<zone>` = `{ lat, lng }` | Corrected centre of a block or area |
+| `config/alerts` | Mobile alert settings (below) |
+
+The node power monitor at `village/water_management/power_consumption` (solar voltage/current/power, node
+power draw and per-sensor power) is read as a fourth sensor group, **Node Power**.
+
+### Mobile alerts for critical events
+
+Set a recipient name, mobile number, channel and cooldown in **Site & Alerts**. When enabled, every critical
+reading (any site), critical model alert (selected site) and the occupied emergency parking bay is sent once
+per cooldown window. Each send is logged to `alerts/outbox`; `alerts/lastSent/<key>` prevents repeats across
+browsers. Warnings can be included with a checkbox.
+
+| Channel | How the message reaches the phone |
+| --- | --- |
+| Firebase outbox | Nothing leaves the browser. Run `FAST2SMS_KEY=… npm run alert:relay` (or `TWILIO_SID/TWILIO_TOKEN/TWILIO_FROM`, or `CALLMEBOT_KEY`) on any always-on machine, or point a GSM (SIM800) node at `alerts/outbox`; rows go `pending` → `sent`/`failed` |
+| WhatsApp via CallMeBot | Browser calls the free CallMeBot API with your key (one-time WhatsApp opt-in) |
+| SMS via Fast2SMS | Browser calls the Fast2SMS quick-SMS API with your authorization key |
+| Custom webhook | Browser POSTs `{ to, text }` to your URL (Twilio Function, Apps Script, n8n …) |
+
+Browser-side calls are fire-and-forget (`no-cors`), so delivery is confirmed only through the relay. Critical
+alerts on the Overview also carry **Send on WhatsApp** / **Send as SMS** links for manual forwarding, and a
+**Send test alert** button is provided on the configuration page.

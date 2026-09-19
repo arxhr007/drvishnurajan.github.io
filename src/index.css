@@ -42,3 +42,17 @@ body {
 .animate-scroll {
   animation: scroll 60s linear infinite;
 }
+
+/* Map block / area labels (react-leaflet permanent tooltips) */
+.leaflet-tooltip.zone-label {
+    background: rgba(255, 255, 255, 0.85);
+    border: 0;
+    box-shadow: none;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+}
+.leaflet-tooltip.zone-label::before { display: none; }
