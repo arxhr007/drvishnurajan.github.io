@@ -264,13 +264,15 @@ const AlertsCard = ({ canEdit }) => {
                         <label className={`${labelCls} md:col-span-2`}>
                             {channel.keyLabel}
                             <input id="alert-apikey" type="password" value={draft.apiKey || ''} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, apiKey: e.target.value })} className={inputCls} autoComplete="off" />
-                            {draft.channel === 'callmebot' && <span className="text-[11px] text-slate-400">Send "I allow callmebot to send me messages" to +34 644 71 84 50 on WhatsApp once to receive your key.</span>}
+                            <span className="text-[11px] text-amber-600 block mt-0.5">Stored only in this browser (never uploaded to Firebase) — re-enter it on any other device you use to manage alerts.</span>
+                            {draft.channel === 'callmebot' && <span className="text-[11px] text-slate-400 block">Send "I allow callmebot to send me messages" to +34 644 71 84 50 on WhatsApp once to receive your key.</span>}
                         </label>
                     )}
                     {channel.needsUrl && (
                         <label className={`${labelCls} md:col-span-2`}>
                             Webhook URL
                             <input id="alert-webhook" type="url" value={draft.webhookUrl || ''} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, webhookUrl: e.target.value })} className={inputCls} placeholder="https://…" />
+                            <span className="text-[11px] text-amber-600 block mt-0.5">Stored only in this browser (never uploaded to Firebase) — re-enter it on any other device you use to manage alerts.</span>
                         </label>
                     )}
                 </div>

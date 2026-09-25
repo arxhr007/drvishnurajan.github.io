@@ -12,7 +12,7 @@ import {
     offsetCoords,
     pathKey
 } from '../data/sensorSchema';
-import { DEFAULT_ALERT_CONFIG } from '../utils/alertChannels';
+import { DEFAULT_ALERT_CONFIG, readLocalAlertSecrets, writeLocalAlertSecrets, splitAlertConfig } from '../utils/alertChannels';
 import { formatTimeIST, formatClockIST } from '../utils/timeUtils';
 
 export const VillageSensorsContext = createContext(null);
@@ -37,11 +37,15 @@ const readStoredSite = () => {
 const readConfig = (root) => {
     const cfg = isObj(root) && isObj(root.config) ? root.config : {};
     const prototypeSiteId = SITES.some((s) => s.id === cfg.prototypeSite) ? cfg.prototypeSite : DEFAULT_SITE_ID;
+    // apiKey/webhookUrl are never trusted from Firebase (public, no-auth database) even if an
+    // older write left them there; only the shared, non-secret alert fields are read back.
+    const rawAlerts = isObj(cfg.alerts) ? cfg.alerts : {};
+    const { apiKey: _ignoredKey, webhookUrl: _ignoredWebhook, ...sharedAlerts } = rawAlerts;
     return {
         placement: isObj(cfg.sensorPlacement) ? cfg.sensorPlacement : {},
         prototypeSiteId,
         zoneOverrides: isObj(cfg.zones) ? cfg.zones : {},
-        alertConfig: { ...DEFAULT_ALERT_CONFIG, ...(isObj(cfg.alerts) ? cfg.alerts : {}) }
+        sharedAlertConfig: { ...DEFAULT_ALERT_CONFIG, ...sharedAlerts }
     };
 };
 
@@ -77,6 +81,7 @@ export const VillageSensorsProvider = ({ children }) => {
     const [root, setRoot] = useState(null);
     const [villageData, setVillageData] = useState({});
     const [config, setConfig] = useState(() => readConfig(null));
+    const [alertSecrets, setAlertSecrets] = useState(readLocalAlertSecrets); // this browser only, never sent to Firebase
     const [connected, setConnected] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -219,7 +224,11 @@ export const VillageSensorsProvider = ({ children }) => {
         await update(ref(sensorDb, `config/zones/${siteId}`), entries);
     }, []);
     const saveAlertConfig = useCallback(async (cfg) => {
-        await set(ref(sensorDb, 'config/alerts'), { ...DEFAULT_ALERT_CONFIG, ...cfg });
+        const { shared, secret } = splitAlertConfig({ ...DEFAULT_ALERT_CONFIG, ...cfg });
+        // Secrets stay on this device; only the shared settings go to the public database.
+        writeLocalAlertSecrets(secret);
+        setAlertSecrets(secret);
+        await set(ref(sensorDb, 'config/alerts'), shared);
     }, []);
 
     // ── Derived state for the selected site ──────────────────────────────────
@@ -281,6 +290,12 @@ export const VillageSensorsProvider = ({ children }) => {
         return { ...entry, siteId, zoneId, placed: !!placed, metric };
     }), [root, config]);
 
+    // Shared (public) settings + this device's own secret channel key/webhook, merged client-side.
+    const effectiveAlertConfig = useMemo(
+        () => ({ ...config.sharedAlertConfig, ...alertSecrets }),
+        [config.sharedAlertConfig, alertSecrets]
+    );
+
     const value = useMemo(() => ({
         sites: SITES,
         villages: VILLAGES,
@@ -306,13 +321,13 @@ export const VillageSensorsProvider = ({ children }) => {
         placement: config.placement,
         prototypeSiteId: config.prototypeSiteId,
         zoneOverrides: config.zoneOverrides,
-        alertConfig: config.alertConfig,
+        alertConfig: effectiveAlertConfig,
         sensorPaths,
         savePlacement,
         savePrototypeSite,
         saveZoneOverrides,
         saveAlertConfig
-    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, connected, loading, error, setMetricValue, config, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig]);
+    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, connected, loading, error, setMetricValue, config, effectiveAlertConfig, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig]);
 
     return (
         <VillageSensorsContext.Provider value={value}>

@@ -13,6 +13,14 @@
 //
 // Those requests are sent with `mode: "no-cors"`, so the browser can fire them
 // but cannot read the reply; the outbox row records what was attempted.
+//
+// SECURITY: the sensor database (rps-sahrdaya) has open read/write rules, so
+// anything written to it is public. Provider API keys and webhook URLs are
+// therefore NEVER written to Firebase — they live only in this browser's
+// localStorage (readLocalAlertSecrets/writeLocalAlertSecrets below) and are
+// merged into alertConfig client-side. Only non-secret settings (phone,
+// name, channel, cooldown, enabled, includeWarnings) go to config/alerts,
+// where every admin's browser can share them.
 // ---------------------------------------------------------------------------
 
 export const ALERT_CHANNELS = [
@@ -31,6 +39,41 @@ export const DEFAULT_ALERT_CONFIG = {
     webhookUrl: '',
     cooldownMinutes: 30,
     includeWarnings: false
+};
+
+// Fields safe to store in the shared (public, no-auth) sensor database.
+export const SHARED_ALERT_FIELDS = ['enabled', 'phone', 'name', 'channel', 'cooldownMinutes', 'includeWarnings'];
+// Fields kept device-local only, never written to Firebase.
+export const SECRET_ALERT_FIELDS = ['apiKey', 'webhookUrl'];
+
+const LOCAL_SECRET_KEY = 'gramvista.alertSecrets';
+
+/** Provider key / webhook URL for this browser only. Never synced to Firebase. */
+export const readLocalAlertSecrets = () => {
+    try {
+        const raw = localStorage.getItem(LOCAL_SECRET_KEY);
+        const parsed = raw ? JSON.parse(raw) : {};
+        return { apiKey: parsed.apiKey || '', webhookUrl: parsed.webhookUrl || '' };
+    } catch {
+        return { apiKey: '', webhookUrl: '' };
+    }
+};
+
+export const writeLocalAlertSecrets = ({ apiKey = '', webhookUrl = '' }) => {
+    try {
+        localStorage.setItem(LOCAL_SECRET_KEY, JSON.stringify({ apiKey, webhookUrl }));
+    } catch {
+        /* storage unavailable (private browsing, quota) — secret channels just won't persist */
+    }
+};
+
+/** Split a full alert-config draft into the part that is safe to share and the part that is not. */
+export const splitAlertConfig = (cfg) => {
+    const shared = {};
+    SHARED_ALERT_FIELDS.forEach((key) => { shared[key] = cfg[key]; });
+    const secret = {};
+    SECRET_ALERT_FIELDS.forEach((key) => { secret[key] = cfg[key] || ''; });
+    return { shared, secret };
 };
 
 /** Digits only with country code; 10-digit Indian numbers get +91. */

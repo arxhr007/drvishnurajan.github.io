@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { ref, onValue, push, set, update, query, limitToLast } from 'firebase/database';
+import { ref, onValue, push, set, update, get, query, limitToLast } from 'firebase/database';
 import { sensorDb } from '../firebase.config';
 import { useVillageSensors } from '../hooks/useVillageSensors';
 import { useVillageInsights } from '../hooks/useVillageInsights';
@@ -18,6 +18,29 @@ import { getSite } from '../data/villages';
 const AlertDispatchContext = createContext(null);
 
 const keySafe = (key) => String(key).replace(/[.#$[\]/]/g, '_');
+
+// alerts/outbox keeps growing as long as any critical reading stays critical
+// (a stuck sensor can queue one row per cooldown window, indefinitely). Trim
+// it back to the most recent rows periodically so the database — and the
+// root listener every viewer subscribes to — doesn't grow without bound.
+const OUTBOX_RETENTION = 60;
+const PRUNE_INTERVAL_MS = 30 * 60 * 1000;
+
+const pruneOutbox = async () => {
+    try {
+        const snap = await get(ref(sensorDb, 'alerts/outbox'));
+        const rows = snap.val() || {};
+        const ids = Object.keys(rows);
+        if (ids.length <= OUTBOX_RETENTION) return;
+        const oldestFirst = ids.sort((a, b) => (rows[a]?.ts || 0) - (rows[b]?.ts || 0));
+        const toRemove = oldestFirst.slice(0, ids.length - OUTBOX_RETENTION);
+        const updates = {};
+        toRemove.forEach((id) => { updates[id] = null; });
+        await update(ref(sensorDb, 'alerts/outbox'), updates);
+    } catch (err) {
+        console.error('Outbox prune failed:', err);
+    }
+};
 
 export const AlertDispatchProvider = ({ children }) => {
     const { villageData, alertConfig, selectedVillageId, loading } = useVillageSensors();
@@ -40,6 +63,13 @@ export const AlertDispatchProvider = ({ children }) => {
             setRecent(Object.entries(v).map(([id, row]) => ({ id, ...row })).sort((a, b) => (b.ts || 0) - (a.ts || 0)));
         });
         return () => { unsubLast(); unsubOutbox(); };
+    }, []);
+
+    // Keep the outbox bounded so it can never grow without limit
+    useEffect(() => {
+        pruneOutbox();
+        const interval = setInterval(pruneOutbox, PRUNE_INTERVAL_MS);
+        return () => clearInterval(interval);
     }, []);
 
     const dispatch = useCallback(async (candidate, { test = false } = {}) => {
