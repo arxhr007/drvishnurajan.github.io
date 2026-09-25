@@ -11,6 +11,7 @@ import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
 import { VillageSelector, SensorConnectionBadge, metricIcon, statusStyle, formatReading } from '../Shared/SensorWidgets';
 import { SENSOR_GROUPS, metricsForGroup, describeRange } from '../../data/sensorSchema';
 import { UBA_PROGRAMME, DEFAULT_VILLAGE_ID } from '../../data/villages';
+import { parseSourcePath } from '../../data/sensorSources';
 
 const parseAssetValue = (val) => {
     if (val === undefined || val === null) return { value: 0, unit: '' };
@@ -393,7 +394,7 @@ const MetricCard = ({ reading, onClick }) => {
 };
 
 const MetricDetailView = ({ metricKey, onBack }) => {
-    const { readings, selectedVillage, selectedVillageId, setMetricValue, sensorDbUrl } = useVillageSensors();
+    const { readings, selectedVillage, selectedVillageId, setMetricValue, sensorDbUrl, sources } = useVillageSensors();
     const { isAdmin } = useAuth();
     const [busy, setBusy] = useState(false);
     const [actionError, setActionError] = useState(null);
@@ -408,7 +409,9 @@ const MetricDetailView = ({ metricKey, onBack }) => {
     const isOn = reading.binary && reading.value === 1;
     const canControl = reading.controllable && isAdmin;
     const path = reading.path || `villages/${selectedVillageId}/${reading.group}/${reading.key}`;
-    const dbHost = sensorDbUrl.replace(/^https?:\/\//, '');
+    const { sourceId: readingSourceId, path: readingPath } = parseSourcePath(path);
+    const readingSource = sources.find((s) => s.id === readingSourceId);
+    const dbHost = (readingSource?.url || sensorDbUrl).replace(/^https?:\/\//, '');
 
     const handleToggle = async () => {
         if (!canControl || busy) return;
@@ -538,7 +541,8 @@ const MetricDetailView = ({ metricKey, onBack }) => {
                             <div className="min-w-0">
                                 <p className="text-xs text-slate-500 font-semibold uppercase">Data Source</p>
                                 <p className="text-xs font-mono text-slate-800 break-all">{dbHost}</p>
-                                <p className="text-xs font-mono text-slate-500 break-all">/{path}</p>
+                                <p className="text-xs font-mono text-slate-500 break-all">/{readingPath}</p>
+                                {readingSource && <p className="text-[10px] text-slate-400">{readingSource.label}</p>}
                             </div>
                         </div>
                     </div>

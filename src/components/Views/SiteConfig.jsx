@@ -40,6 +40,92 @@ const useSaver = (fn) => {
     return { run, saving, error, ok };
 };
 
+// ── Telemetry sources (Firebase databases) ───────────────────────────────────
+const SourcesCard = ({ canEdit }) => {
+    const { sources, sites, parkingSourceId, saveSources, saveParkingSource } = useVillageSensors();
+    const [draft, setDraft] = useState({});
+    const [parking, setParking] = useState(parkingSourceId);
+    const [newId, setNewId] = useState('');
+    const [newUrl, setNewUrl] = useState('');
+    useEffect(() => { setDraft({}); }, [sources]);
+    useEffect(() => { setParking(parkingSourceId); }, [parkingSourceId]);
+
+    const rowValue = (s) => ({ label: s.label, url: s.url, site: s.site, priority: s.priority, enabled: s.enabled, ignoreKeys: (s.ignoreKeys || []).join(', '), ...(draft[s.id] || {}) });
+    const setRow = (id, patch) => setDraft((d) => ({ ...d, [id]: { ...(d[id] || {}), ...patch } }));
+    const dirty = Object.keys(draft).length > 0 || parking !== parkingSourceId || (newId.trim() && newUrl.trim());
+
+    const saver = useSaver(async () => {
+        const entries = {};
+        Object.entries(draft).forEach(([id, v]) => {
+            const base = sources.find((s) => s.id === id) || {};
+            const merged = { ...rowValue(base), ...v };
+            entries[id] = {
+                label: merged.label, url: merged.url, site: merged.site, priority: Number(merged.priority) || 0, enabled: !!merged.enabled,
+                ignoreKeys: String(merged.ignoreKeys || '').split(',').map((k) => k.trim()).filter(Boolean)
+            };
+        });
+        if (newId.trim() && newUrl.trim()) {
+            entries[newId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')] = { label: newId.trim(), url: newUrl.trim().replace(/\/+$/, ''), site: sites[0]?.id || 'campus', priority: 50, enabled: true, ignoreKeys: [] };
+        }
+        if (Object.keys(entries).length) await saveSources(entries);
+        if (parking !== parkingSourceId) await saveParkingSource(parking);
+        setDraft({}); setNewId(''); setNewUrl('');
+    });
+
+    return (
+        <DashboardCard title="Telemetry sources (Firebase databases)">
+            <div className="space-y-4">
+                <p className="text-sm text-slate-600">
+                    Every database the field nodes write to. Readings from all enabled sources are merged; when the same sensor exists in more than one,
+                    the <b>lowest priority number wins</b>. Each source has a default owner site for readings that are not placed explicitly.
+                    Relay commands are written back to the database the reading came from. Saved to <span className="font-mono">config/sources</span>.
+                </p>
+                <div className="overflow-x-auto -mx-2">
+                    <table className="w-full text-xs">
+                        <thead>
+                            <tr className="text-left text-slate-500 uppercase tracking-wider text-[10px]">
+                                <th className="px-2 py-1">Source</th><th className="px-2 py-1">Database URL</th><th className="px-2 py-1">Owner site</th><th className="px-2 py-1">Priority</th><th className="px-2 py-1">On</th><th className="px-2 py-1">Parking</th><th className="px-2 py-1">Ignore root keys</th><th className="px-2 py-1">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {sources.map((s) => {
+                                const v = rowValue(s);
+                                return (
+                                    <tr key={s.id} className={`border-t border-slate-100 align-top ${draft[s.id] ? 'bg-amber-50/60' : ''}`}>
+                                        <td className="px-2 py-1.5">
+                                            <p className="font-mono text-[11px] text-slate-700">{s.id}{s.primary ? <span className="ml-1 text-[9px] uppercase font-bold text-indigo-700">primary</span> : null}</p>
+                                            <input type="text" value={v.label} disabled={!canEdit} onChange={(e) => setRow(s.id, { label: e.target.value })} className="mt-1 w-44 p-1 rounded border border-slate-200 bg-white text-[11px] disabled:bg-slate-50" />
+                                        </td>
+                                        <td className="px-2 py-1.5"><input type="url" value={v.url} disabled={!canEdit || s.primary} onChange={(e) => setRow(s.id, { url: e.target.value })} className="w-72 p-1 rounded border border-slate-200 bg-white font-mono text-[11px] disabled:bg-slate-50" /></td>
+                                        <td className="px-2 py-1.5">
+                                            <select value={v.site} disabled={!canEdit} onChange={(e) => setRow(s.id, { site: e.target.value })} className="p-1 rounded border border-slate-200 bg-white text-[11px] disabled:bg-slate-50">
+                                                {sites.map((site) => <option key={site.id} value={site.id}>{site.name}</option>)}
+                                            </select>
+                                        </td>
+                                        <td className="px-2 py-1.5"><input type="number" value={v.priority} disabled={!canEdit} onChange={(e) => setRow(s.id, { priority: Number(e.target.value) })} className="w-16 p-1 rounded border border-slate-200 bg-white text-[11px] disabled:bg-slate-50" /></td>
+                                        <td className="px-2 py-1.5"><input type="checkbox" checked={!!v.enabled} disabled={!canEdit || s.primary} onChange={(e) => setRow(s.id, { enabled: e.target.checked })} /></td>
+                                        <td className="px-2 py-1.5"><input type="radio" name="parking-source" checked={parking === s.id} disabled={!canEdit} onChange={() => setParking(s.id)} /></td>
+                                        <td className="px-2 py-1.5"><input type="text" value={v.ignoreKeys} disabled={!canEdit} onChange={(e) => setRow(s.id, { ignoreKeys: e.target.value })} placeholder="e.g. Water, test" className="w-32 p-1 rounded border border-slate-200 bg-white text-[11px] disabled:bg-slate-50" /></td>
+                                        <td className="px-2 py-1.5 whitespace-nowrap">
+                                            <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${s.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{s.connected ? 'connected' : s.enabled ? 'no data' : 'off'}</span>
+                                            {s.rootKeys.length > 0 && <p className="text-[10px] text-slate-400 mt-1 max-w-[180px] truncate" title={s.rootKeys.join(', ')}>{s.rootKeys.join(', ')}</p>}
+                                        </td>
+                                    </tr>
+                                );
+                            })}
+                        </tbody>
+                    </table>
+                </div>
+                <div className="flex flex-wrap items-end gap-2">
+                    <label className={labelCls}>Add a database<input type="text" value={newId} disabled={!canEdit} onChange={(e) => setNewId(e.target.value)} placeholder="source id (e.g. rps-project-3)" className={`${inputCls} w-52`} /></label>
+                    <label className={`${labelCls} flex-1 min-w-[260px]`}>URL<input type="url" value={newUrl} disabled={!canEdit} onChange={(e) => setNewUrl(e.target.value)} placeholder="https://<project>-default-rtdb.<region>.firebasedatabase.app" className={inputCls} /></label>
+                </div>
+                <SaveBar dirty={!!dirty && canEdit} saving={saver.saving} error={saver.error} ok={saver.ok} onSave={saver.run} onReset={() => { setDraft({}); setParking(parkingSourceId); setNewId(''); setNewUrl(''); }} label="Save sources" />
+            </div>
+        </DashboardCard>
+    );
+};
+
 // ── Sensor placement ──────────────────────────────────────────────────────────
 const PlacementCard = ({ canEdit }) => {
     const { sensorPaths, sites, placement, prototypeSiteId, savePlacement, savePrototypeSite } = useVillageSensors();
@@ -98,6 +184,7 @@ const PlacementCard = ({ canEdit }) => {
                             <thead>
                                 <tr className="text-left text-slate-500 uppercase tracking-wider text-[10px]">
                                     <th className="px-2 py-1">Firebase path</th>
+                                    <th className="px-2 py-1">Source</th>
                                     <th className="px-2 py-1">Sensor</th>
                                     <th className="px-2 py-1 text-right">Value</th>
                                     <th className="px-2 py-1">Site</th>
@@ -108,7 +195,7 @@ const PlacementCard = ({ canEdit }) => {
                             <tbody>
                                 {sites.filter((s) => grouped[s.id]?.length).map((site) => (
                                     <React.Fragment key={site.id}>
-                                        <tr className="bg-slate-50"><td colSpan={6} className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">{site.name}</td></tr>
+                                        <tr className="bg-slate-50"><td colSpan={7} className="px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">{site.name}</td></tr>
                                         {grouped[site.id].map((entry) => {
                                             const v = rowValue(entry);
                                             const zones = zonesOf(getSite(v.site));
@@ -116,6 +203,7 @@ const PlacementCard = ({ canEdit }) => {
                                             return (
                                                 <tr key={entry.key} className={`border-t border-slate-100 ${changed ? 'bg-amber-50/60' : ''}`}>
                                                     <td className="px-2 py-1.5 font-mono text-[11px] text-slate-600 break-all">{entry.path}</td>
+                                                    <td className="px-2 py-1.5 text-[10px] text-slate-500 whitespace-nowrap">{entry.sourceId}</td>
                                                     <td className="px-2 py-1.5 font-semibold text-slate-700 whitespace-nowrap">{entry.metric?.label || entry.metricKey}</td>
                                                     <td className="px-2 py-1.5 text-right font-mono whitespace-nowrap">{entry.value ?? '—'} {entry.metric?.unit}</td>
                                                     <td className="px-2 py-1.5">
@@ -434,6 +522,7 @@ export const SiteConfig = () => {
                 )}
             </div>
 
+            <SourcesCard canEdit={isAdmin} />
             <PlacementCard canEdit={isAdmin} />
             <ZonesCard canEdit={isAdmin} />
             <UbidotsCard canEdit={isAdmin} />

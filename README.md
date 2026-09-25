@@ -370,3 +370,46 @@ the token is refreshed automatically before it expires.
   `offlineAfterMinutes`, `fullAlertPct`, `enabled`.
 - A gateway may also write bins straight to the sensor database as `waste/bins/<label> = { name, fillPct,
   status, lat, lng, timestamp }`; these merge with the Ubidots bins by label.
+
+
+### Telemetry sources (several Firebase databases) and actuators
+
+The nodes now write to two Realtime Databases. Both are read live and merged; the primary one also holds
+the dashboard's own configuration.
+
+| Source id | Database | Default owner | Role |
+| --- | --- | --- | --- |
+| `rps-sahrdaya` | rps-sahrdaya-bfe70 (asia-southeast1) | Sahrdaya Campus | primary: readings + `config/`, `alerts/`, `parking/config`, `waste/bins` |
+| `rps-project-2` | rps-project-2 (asia-southeast1) | Sahrdaya Campus | readings, water-pump relay, irrigation pump node, `powerData` |
+
+When the same sensor exists in both, the source with the lower `priority` wins (rps-project-2 = 5,
+rps-sahrdaya = 10). Readings from a non-primary source carry a `<sourceId>:` path prefix
+(`rps-project-2:Watermanagement/relay_state`), so placement keys and relay write-backs go to the right
+database. Manage sources in **Site & Alerts → Telemetry sources** (stored at `config/sources/<id>` =
+`{ url, label, site, priority, enabled, ignoreKeys }`); `config/parkingSource` selects the database the
+parking bays are read from.
+
+Layout understood from the new firmware (flat, at the root):
+
+    Watermanagement/{ ph, rain, turbidity, waterlevel1 (tank), waterlevel2 (dam), relay_state }
+    soilMoisturePump/{ soilMoisturePercent, relayState, pumpSafetyCutoff }
+    agriculture/{ soilMoisture, temperature, humidity }
+    powerData/{ household | solar | windmill }/{ voltage, current, power }
+    village/water_management/power_consumption/{ *_power, *_voltage, *_current }
+
+Keys that depend on their parent (`relayState` under `soilMoisturePump` is the irrigation pump; under
+`Watermanagement` it is the water pump; `power` under `solar` is solar power) are resolved by context
+rules in `src/data/sensorSchema.js`.
+
+**Actuators.** Three control points are exposed as toggles on the Overview (System Controls) and in each
+sensor's detail view (admins only). The dashboard writes back the same JSON type the node published
+(`true`/`false` for these):
+
+| Control | Firebase key | Meaning |
+| --- | --- | --- |
+| Water Pump | `Watermanagement/relay_state` | tank / supply pump relay |
+| Irrigation Pump | `soilMoisturePump/relayState` | irrigation pump relay |
+| Irrigation Safety Cutoff | `soilMoisturePump/pumpSafetyCutoff` | when `true` the node keeps the irrigation pump locked off |
+
+`Water/waterLevel` is read as the tank level and `Watermanagement/waterlevel1` / `waterlevel2` as tank /
+dam respectively; swap the aliases in `sensorSchema.js` if the probes are the other way round.

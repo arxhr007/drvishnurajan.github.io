@@ -43,7 +43,21 @@ const sensorApp = hasApp(SENSOR_APP_NAME)
 
 // Initialize Realtime Databases and export them
 export const db = getDatabase(app);          // sahrdayacps: assets / categories / soil_monitoring
-export const sensorDb = getDatabase(sensorApp); // rps-sahrdaya: village sensor telemetry
+export const sensorDb = getDatabase(sensorApp); // rps-sahrdaya: village sensor telemetry + dashboard config
+
+// Additional telemetry databases (see src/data/sensorSources.js). Each URL gets
+// its own named Firebase app so listeners and writes go to the right project.
+const extraDbs = new Map();
+export const getSensorDatabase = (url) => {
+  const clean = String(url || "").replace(/\/+$/, "");
+  if (!clean || clean === SENSOR_DB_URL) return sensorDb;
+  if (extraDbs.has(clean)) return extraDbs.get(clean);
+  const name = `sensors-${clean.replace(/[^a-z0-9]/gi, "-").slice(0, 60)}`;
+  const extraApp = hasApp(name) ? getApp(name) : initializeApp({ databaseURL: clean }, name);
+  const database = getDatabase(extraApp);
+  extraDbs.set(clean, database);
+  return database;
+};
 
 // Initialize Auth
 export const auth = getAuth(app);

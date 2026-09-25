@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ref, onValue, set } from 'firebase/database';
-import { sensorDb } from '../firebase.config';
+import { sensorDb, getSensorDatabase } from '../firebase.config';
+import { useVillageSensors } from './useVillageSensors';
 import { formatClockIST, formatTimeIST } from '../utils/timeUtils';
 
 // ---------------------------------------------------------------------------
@@ -211,6 +212,7 @@ export const buildSlots = (config, sensors, thresholdOverride = null) => {
 };
 
 export const useParking = () => {
+    const { parkingDbUrl, parkingSourceId } = useVillageSensors();
     const [root, setRoot] = useState(null);
     const [config, setConfig] = useState(DEFAULT_PARKING_CONFIG);
     const [configSource, setConfigSource] = useState('default');
@@ -224,7 +226,8 @@ export const useParking = () => {
 
     useEffect(() => {
         const unsubConn = onValue(ref(sensorDb, '.info/connected'), (snap) => setConnected(snap.val() === true));
-        const unsubRoot = onValue(ref(sensorDb, '/'), (snap) => {
+        const parkingDb = getSensorDatabase(parkingDbUrl);
+        const unsubRoot = onValue(ref(parkingDb, '/'), (snap) => {
             setRoot(snap.val());
             setLoading(false);
         }, (err) => { console.error('Parking DB error:', err); setLoading(false); });
@@ -234,7 +237,7 @@ export const useParking = () => {
             setConfigSource(raw ? 'firebase' : 'default');
         });
         return () => { unsubConn(); unsubRoot(); unsubCfg(); };
-    }, []);
+    }, [parkingDbUrl]);
 
     const sensors = useMemo(() => detectUltrasonicSensors(root), [root]);
     const deviceCounts = useMemo(() => detectDeviceCounts(root), [root]);
@@ -303,6 +306,7 @@ export const useParking = () => {
     const emergencyOccupied = stats.emergency?.state === 'occupied';
 
     return {
+        parkingSourceId, parkingDbUrl,
         config: effectiveConfig, savedConfig: config, configSource, saveConfig, saving, saveError,
         sensors, slots, stats, deviceCounts, derivedThresholdCm, emergencyOccupied, history, connected, loading, lastUpdate
     };

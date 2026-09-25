@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Field-sensor schema (RPS Sahrdaya Realtime Database)
+// Field-sensor schema (RPS Sahrdaya / RPS Project 2 Realtime Databases)
 //
 // Canonical layout written by the field nodes:
 //
@@ -8,21 +8,27 @@
 //                             water_level_tank, pump, turbidity }
 //   villages/<siteId>/energy/{ solar_output_wh, windmill_output_wh,
 //                              household_consumption_wh }
-//   villages/<siteId>/power/{ solar_voltage, solar_current, solar_power, total_power, ... }
+//   villages/<siteId>/power/{ solar_voltage, solar_current, solar_power, ... }
 //   villages/<siteId>/updated_at   (epoch seconds/millis or ISO string)
 //
-// Optional map placement (otherwise a sensor is drawn in its default zone):
+// What the prototype firmware actually writes today (flat, at the root):
 //
+//   Watermanagement/{ ph, rain, turbidity, waterlevel1, waterlevel2, relay_state }
+//   soilMoisturePump/{ soilMoisturePercent, relayState, pumpSafetyCutoff }
+//   agriculture/{ soilMoisture, temperature, humidity }
+//   powerData/{ household | solar | windmill }/{ voltage, current, power }
+//   village/water_management/power_consumption/{ *_power, *_voltage, *_current }
+//
+// Keys are matched case-insensitively after stripping spaces, dashes and
+// underscores. A few keys mean different things depending on their parent
+// (relayState under soilMoisturePump is the irrigation pump; under
+// Watermanagement it is the water pump) – see CONTEXT_RULES. Readings from a
+// non-primary database carry a "<sourceId>:" path prefix (sensorSources.js).
+//
+// Optional map placement:
 //   config/sensorPlacement/<path with / replaced by ~> = { site, zone }
-//   config/prototypeSite = "<siteId>"   – owner of unplaced flat-root readings
-//   config/zones/<siteId>/<zoneId>     = { lat, lng } – move a block/area
+//   config/zones/<siteId>/<zoneId> = { lat, lng }
 //   villages/<siteId>/center/{ lat, lng }, villages/<siteId>/locations/<metricKey>/{ lat, lng }
-//
-// The reader is deliberately forgiving: keys are matched case-insensitively
-// after stripping spaces, dashes and underscores; group nesting is optional;
-// values may be plain numbers, numeric strings ("42.5%"), on/off strings or
-// `{ value, timestamp }` objects. Flat keys at the root (how the prototype
-// firmware writes today) belong to the prototype site unless placed elsewhere.
 // ---------------------------------------------------------------------------
 import { DEFAULT_SITE_ID, SITES } from './villages.js';
 
@@ -39,7 +45,8 @@ export const SENSOR_GROUPS = [
 
 // `offset` = default map position relative to the site centre (used only when
 // the site has no matching zone). `defaultZone` = block/area the sensor is
-// drawn in until an admin places it (config/sensorPlacement).
+// drawn in until an admin places it. `controllable` = the dashboard may write
+// the value back to the node (relays).
 export const SENSOR_METRICS = [
     // ── Agriculture ────────────────────────────────────────────────────────
     {
@@ -59,6 +66,25 @@ export const SENSOR_METRICS = [
         aliases: ['air_humidity', 'hum', 'humidity_value', 'relative_humidity'],
         range: { min: 25, max: 90, minMsg: 'Air is very dry', maxMsg: 'Very high humidity' },
         offset: [-0.0012, 0.0036], defaultZone: { village: 'weather_mast', campus: 'bio_block' }
+    },
+    {
+        key: 'irrigation_zone_moisture', group: 'agriculture', label: 'Irrigation Zone Moisture', unit: '%', icon: 'Droplets',
+        aliases: ['irrigation_moisture', 'pump_zone_moisture', 'irrigation_soil_moisture'],
+        range: { min: 20, max: 80, minMsg: 'Irrigation zone is dry', maxMsg: 'Irrigation zone is water-logged' },
+        offset: [-0.0020, 0.0026], defaultZone: { village: 'paddy_field', campus: 'bio_block' }
+    },
+    {
+        key: 'irrigation_pump', group: 'agriculture', label: 'Irrigation Pump', unit: '', icon: 'Power', binary: true, controllable: true,
+        aliases: ['irrigation_pump', 'irrigation_relay', 'soil_pump', 'soil_moisture_pump_relay', 'irrigation_pump_state'],
+        onLabel: 'Running', offLabel: 'Stopped',
+        offset: [-0.0016, 0.0018], defaultZone: { village: 'pump_house', campus: 'bio_block' }
+    },
+    {
+        key: 'pump_safety_cutoff', group: 'agriculture', label: 'Irrigation Safety Cutoff', unit: '', icon: 'ShieldAlert', binary: true, controllable: true,
+        aliases: ['pump_safety_cutoff', 'pumpSafetyCutoff', 'safety_cutoff', 'pump_cutoff', 'irrigation_cutoff'],
+        onLabel: 'Engaged – pump locked off', offLabel: 'Clear',
+        onStatus: 'warning',
+        offset: [-0.0014, 0.0014], defaultZone: { village: 'pump_house', campus: 'bio_block' }
     },
 
     // ── Water management ───────────────────────────────────────────────────
@@ -86,19 +112,20 @@ export const SENSOR_METRICS = [
     },
     {
         key: 'water_level_dam', group: 'water', label: 'Water Level – Dam', unit: '%', icon: 'Waves',
-        aliases: ['dam_level', 'dam_water_level', 'dam', 'water_level_dam_value'],
+        aliases: ['dam_level', 'dam_water_level', 'dam', 'water_level_dam_value', 'waterlevel2', 'water_level_2', 'level2', 'reservoir_level'],
         range: { max: 85, criticalMax: 95, maxMsg: 'Dam nearing full capacity' },
         offset: [-0.0006, -0.0038], defaultZone: { village: 'check_dam', campus: 'campus_grounds' }
     },
     {
         key: 'water_level_tank', group: 'water', label: 'Water Level – Tank', unit: '%', icon: 'Cylinder',
-        aliases: ['tank_level', 'tank_water_level', 'water_level_water_tank', 'tank', 'water_tank_level', 'waterLevel', 'water_level'],
+        aliases: ['tank_level', 'tank_water_level', 'water_level_water_tank', 'tank', 'water_tank_level', 'waterLevel', 'water_level', 'waterlevel1', 'water_level_1', 'level1', 'tank_level_1'],
         range: { min: 20, criticalMin: 10, minMsg: 'Tank level low – refill needed' },
         offset: [0.0026, -0.0002], defaultZone: { village: 'overhead_tank', campus: 'main_block' }
     },
     {
         key: 'pump', group: 'water', label: 'Water Pump', unit: '', icon: 'Power', binary: true, controllable: true,
-        aliases: ['water_pump', 'pump_status', 'pump_state', 'water_pump_on_off', 'pump_on_off', 'motor'],
+        aliases: ['water_pump', 'pump_status', 'pump_state', 'water_pump_on_off', 'pump_on_off', 'motor', 'relay_state', 'relay', 'pump_relay', 'water_pump_relay', 'water_relay'],
+        onLabel: 'Running', offLabel: 'Stopped',
         offset: [0.0020, 0.0012], defaultZone: { village: 'pump_house', campus: 'main_block' }
     },
     {
@@ -119,7 +146,7 @@ export const SENSOR_METRICS = [
     },
     {
         key: 'windmill_output_wh', group: 'energy', label: 'Windmill Power Output', unit: 'Wh', icon: 'Wind', flow: 'producer',
-        aliases: ['wind', 'windmill', 'wind_output', 'windmill_output', 'wind_power', 'windmill_power', 'windmill_power_output', 'windmill_power_output_in_wh', 'wind_energy'],
+        aliases: ['wind', 'windmill', 'wind_output', 'windmill_output', 'wind_wh', 'windmill_wh', 'windmill_power_output', 'windmill_power_output_in_wh', 'wind_energy'],
         offset: [0.0008, 0.0042], defaultZone: { village: 'windmill_ridge', campus: 'campus_grounds' }
     },
     {
@@ -128,56 +155,26 @@ export const SENSOR_METRICS = [
         offset: [-0.0004, 0.0014], defaultZone: { village: 'model_household', campus: 'boys_hostel' }
     },
 
-    // ── Node power monitor (prototype: solar-fed sensor node) ──────────────
-    {
-        key: 'solar_voltage', group: 'power', label: 'Solar Voltage', unit: 'V', icon: 'Sun',
-        aliases: ['solar_v', 'panel_voltage', 'pv_voltage'],
-        offset: [-0.0028, -0.0008], defaultZone: { village: 'solar_array', campus: 'main_block' }
-    },
-    {
-        key: 'solar_current', group: 'power', label: 'Solar Current', unit: 'mA', icon: 'Sun',
-        aliases: ['solar_i', 'panel_current', 'pv_current'],
-        offset: [-0.0028, -0.0004], defaultZone: { village: 'solar_array', campus: 'main_block' }
-    },
-    {
-        key: 'solar_power', group: 'power', label: 'Solar Power', unit: 'W', icon: 'Sun',
-        aliases: ['panel_power', 'pv_power', 'solar_watts'],
-        offset: [-0.0028, 0], defaultZone: { village: 'solar_array', campus: 'main_block' }
-    },
-    {
-        key: 'total_power', group: 'power', label: 'Node Power Draw', unit: 'W', icon: 'Plug',
-        aliases: ['node_power', 'total_watts', 'power_total', 'system_power'],
-        offset: [-0.0026, 0.0004], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
-    },
-    {
-        key: 'led_power', group: 'power', label: 'LED Power', unit: 'W', icon: 'Plug',
-        aliases: ['led_watts', 'light_power'],
-        offset: [-0.0026, 0.0008], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
-    },
-    {
-        key: 'ph_sensor_power', group: 'power', label: 'pH Sensor Power', unit: 'W', icon: 'Plug',
-        aliases: ['ph_power'],
-        offset: [-0.0026, 0.0012], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
-    },
-    {
-        key: 'rain_sensor_power', group: 'power', label: 'Rain Sensor Power', unit: 'W', icon: 'Plug',
-        aliases: ['rain_power'],
-        offset: [-0.0026, 0.0016], defaultZone: { village: 'panchayat_office', campus: 'main_block' }
-    },
-    {
-        key: 'turbidity_power', group: 'power', label: 'Turbidity Sensor Power', unit: 'W', icon: 'Plug',
-        aliases: ['turbidity_sensor_power'],
-        offset: [-0.0026, 0.0020], defaultZone: { village: 'water_quality_station', campus: 'main_block' }
-    },
-    {
-        key: 'water_level_power', group: 'power', label: 'Level Sensor Power', unit: 'W', icon: 'Plug',
-        aliases: ['water_level_sensor_power', 'level_sensor_power', 'tank_sensor_power'],
-        offset: [-0.0026, 0.0024], defaultZone: { village: 'overhead_tank', campus: 'main_block' }
-    }
+    // ── Node power monitor (INA219-class meters on the prototype) ──────────
+    { key: 'solar_voltage', group: 'power', label: 'Solar Voltage', unit: 'V', icon: 'Sun', aliases: ['solar_v', 'panel_voltage', 'pv_voltage'], offset: [-0.0028, -0.0008], defaultZone: { village: 'solar_array', campus: 'main_block' } },
+    { key: 'solar_current', group: 'power', label: 'Solar Current', unit: 'mA', icon: 'Sun', aliases: ['solar_i', 'panel_current', 'pv_current'], offset: [-0.0028, -0.0004], defaultZone: { village: 'solar_array', campus: 'main_block' } },
+    { key: 'solar_power', group: 'power', label: 'Solar Power', unit: 'W', icon: 'Sun', aliases: ['panel_power', 'pv_power', 'solar_watts'], offset: [-0.0028, 0], defaultZone: { village: 'solar_array', campus: 'main_block' } },
+    { key: 'windmill_voltage', group: 'power', label: 'Windmill Voltage', unit: 'V', icon: 'Wind', aliases: ['wind_voltage', 'turbine_voltage'], offset: [0.0006, 0.0040], defaultZone: { village: 'windmill_ridge', campus: 'campus_grounds' } },
+    { key: 'windmill_current', group: 'power', label: 'Windmill Current', unit: 'mA', icon: 'Wind', aliases: ['wind_current', 'turbine_current'], offset: [0.0006, 0.0044], defaultZone: { village: 'windmill_ridge', campus: 'campus_grounds' } },
+    { key: 'windmill_power', group: 'power', label: 'Windmill Power', unit: 'W', icon: 'Wind', aliases: ['wind_power', 'turbine_power', 'wind_watts'], offset: [0.0010, 0.0042], defaultZone: { village: 'windmill_ridge', campus: 'campus_grounds' } },
+    { key: 'household_voltage', group: 'power', label: 'Household Voltage', unit: 'V', icon: 'House', aliases: ['house_voltage', 'load_voltage'], offset: [-0.0006, 0.0012], defaultZone: { village: 'model_household', campus: 'boys_hostel' } },
+    { key: 'household_current', group: 'power', label: 'Household Current', unit: 'mA', icon: 'House', aliases: ['house_current', 'load_current'], offset: [-0.0006, 0.0016], defaultZone: { village: 'model_household', campus: 'boys_hostel' } },
+    { key: 'household_power', group: 'power', label: 'Household Power', unit: 'W', icon: 'House', aliases: ['house_power', 'load_power', 'household_watts'], offset: [-0.0006, 0.0020], defaultZone: { village: 'model_household', campus: 'boys_hostel' } },
+    { key: 'total_power', group: 'power', label: 'Node Power Draw', unit: 'W', icon: 'Plug', aliases: ['node_power', 'total_watts', 'power_total', 'system_power'], offset: [-0.0026, 0.0004], defaultZone: { village: 'water_quality_station', campus: 'main_block' } },
+    { key: 'led_power', group: 'power', label: 'LED Power', unit: 'W', icon: 'Plug', aliases: ['led_watts', 'light_power'], offset: [-0.0026, 0.0008], defaultZone: { village: 'water_quality_station', campus: 'main_block' } },
+    { key: 'ph_sensor_power', group: 'power', label: 'pH Sensor Power', unit: 'W', icon: 'Plug', aliases: ['ph_power'], offset: [-0.0026, 0.0012], defaultZone: { village: 'water_quality_station', campus: 'main_block' } },
+    { key: 'rain_sensor_power', group: 'power', label: 'Rain Sensor Power', unit: 'W', icon: 'Plug', aliases: ['rain_power'], offset: [-0.0026, 0.0016], defaultZone: { village: 'panchayat_office', campus: 'main_block' } },
+    { key: 'turbidity_power', group: 'power', label: 'Turbidity Sensor Power', unit: 'W', icon: 'Plug', aliases: ['turbidity_sensor_power'], offset: [-0.0026, 0.0020], defaultZone: { village: 'water_quality_station', campus: 'main_block' } },
+    { key: 'water_level_power', group: 'power', label: 'Level Sensor Power', unit: 'W', icon: 'Plug', aliases: ['water_level_sensor_power', 'level_sensor_power', 'tank_sensor_power'], offset: [-0.0026, 0.0024], defaultZone: { village: 'overhead_tank', campus: 'main_block' } }
 ];
 
 export const METRIC_BY_KEY = Object.fromEntries(SENSOR_METRICS.map((metric) => [metric.key, metric]));
-
+export const CONTROLLABLE_METRICS = SENSOR_METRICS.filter((metric) => metric.controllable);
 export const metricsForGroup = (groupId) => SENSOR_METRICS.filter((metric) => metric.group === groupId);
 
 // ── Key normalisation ────────────────────────────────────────────────────────
@@ -200,6 +197,30 @@ SENSOR_METRICS.forEach((metric) => {
     });
 });
 
+// Keys whose meaning depends on the parent node. [parent contains, key equals, metric | null = ignore]
+const CONTEXT_RULES = [
+    ['soil', 'relaystate', 'irrigation_pump'],
+    ['irrigat', 'relaystate', 'irrigation_pump'],
+    ['soil', 'pumpsafetycutoff', 'pump_safety_cutoff'],
+    ['soil', 'soilmoisturepercent', 'irrigation_zone_moisture'],
+    ['soil', 'soilmoisture', 'irrigation_zone_moisture'],
+    ['soilmoisturepump', 'humidity', null],       // the pump node echoes 0 for these; the weather node is authoritative
+    ['soilmoisturepump', 'temperature', null],
+    ['water', 'relaystate', 'pump'],
+    ['tank', 'relaystate', 'pump'],
+    ['household', 'power', 'household_power'], ['household', 'voltage', 'household_voltage'], ['household', 'current', 'household_current'],
+    ['solar', 'power', 'solar_power'], ['solar', 'voltage', 'solar_voltage'], ['solar', 'current', 'solar_current'],
+    ['wind', 'power', 'windmill_power'], ['wind', 'voltage', 'windmill_voltage'], ['wind', 'current', 'windmill_current']
+];
+
+const contextMetric = (parentNorm, nk) => {
+    if (!parentNorm) return undefined;
+    for (const [parentPart, keyNorm, metricKey] of CONTEXT_RULES) {
+        if (nk === keyNorm && parentNorm.includes(parentPart)) return metricKey; // may be null (= ignore)
+    }
+    return undefined;
+};
+
 /** A node that declares `online: false` is stale; its readings are ignored. */
 const isOfflineNode = (obj) => {
     if (!isPlainObject(obj)) return false;
@@ -213,8 +234,8 @@ const TIMESTAMP_KEYS = new Set(['timestamp', 'updatedat', 'lastupdated', 'lastup
 const LOCATION_MAP_KEYS = new Set(['locations', 'sensorlocations', 'positions', 'coords', 'geo']);
 const CENTER_KEYS = new Set(['center', 'centre', 'location', 'position', 'gps']);
 const VILLAGE_CONTAINERS = ['villages', 'village', 'sites', 'data'];
-// Root keys that never hold village telemetry
-const RESERVED_ROOT_KEYS = new Set(['config', 'alerts', 'parking', 'emergency', 'categories', 'assets', 'waste']);
+// Root keys that never hold site telemetry
+const RESERVED_ROOT_KEYS = new Set(['config', 'alerts', 'parking', 'emergency', 'categories', 'assets', 'waste', 'test']);
 
 const SITE_NAME_KEYS = new Set(SITES.flatMap((s) => [normKey(s.id), normKey(s.name), normKey(s.fullName || '')]).filter(Boolean));
 const CONTAINER_KEYS = new Set(VILLAGE_CONTAINERS.map(normKey));
@@ -256,8 +277,8 @@ export const offsetCoords = (center, offset) => {
 };
 
 // ── Value parsing ────────────────────────────────────────────────────────────
-const TRUE_WORDS = ['on', '1', 'true', 'active', 'running', 'high', 'yes', 'open'];
-const FALSE_WORDS = ['off', '0', 'false', 'inactive', 'stopped', 'low', 'no', 'closed', 'idle'];
+const TRUE_WORDS = ['on', '1', 'true', 'active', 'running', 'high', 'yes', 'open', 'engaged'];
+const FALSE_WORDS = ['off', '0', 'false', 'inactive', 'stopped', 'low', 'no', 'closed', 'idle', 'clear'];
 
 export const parseSensorValue = (metric, raw) => {
     let value = raw;
@@ -301,7 +322,10 @@ export const evaluateMetric = (metric, value) => {
         return { status: 'offline', message: 'Waiting for the field node to publish a reading' };
     }
     if (metric.binary) {
-        return { status: 'normal', message: value ? `${metric.label} is on` : `${metric.label} is off` };
+        const onLabel = metric.onLabel || `${metric.label} is on`;
+        const offLabel = metric.offLabel || `${metric.label} is off`;
+        const status = value && metric.onStatus ? metric.onStatus : 'normal';
+        return { status, message: value ? onLabel : offLabel };
     }
     const range = metric.range;
     if (!range) return { status: 'normal', message: 'Informational reading' };
@@ -337,12 +361,11 @@ export const describeRange = (metric) => {
 
 /**
  * Inspect the root: which container keys (villages/, village/, …) actually hold
- * site sub-trees, and which root keys must be skipped by the flat-root parser.
- * A container with no known site inside (e.g. village/water_management from the
- * prototype firmware) is treated as flat prototype data, not as a site wrapper.
+ * site sub-trees, and which root keys the flat-root parser must skip.
  */
-const inspectRoot = (root) => {
+const inspectRoot = (root, extraSkip = null) => {
     const skip = new Set(RESERVED_ROOT_KEYS);
+    if (extraSkip) extraSkip.forEach((k) => skip.add(normKey(k)));
     const containers = [];
     if (!isPlainObject(root)) return { skip, containers };
     for (const key of Object.keys(root)) {
@@ -356,10 +379,6 @@ const inspectRoot = (root) => {
     return { skip, containers };
 };
 
-/**
- * Ownership rule for a reading found at `path`: an explicit placement wins,
- * otherwise the reading belongs to the source's default owner.
- */
 const makeAccept = (siteId, defaultOwnerId, placement) => (path) => {
     const placed = placement?.[pathKey(path)];
     if (placed && placed.site) return placed.site === siteId;
@@ -367,72 +386,75 @@ const makeAccept = (siteId, defaultOwnerId, placement) => (path) => {
 };
 
 /**
- * All places a site's readings may live, in priority order:
- *   1. <container>/<siteId>  (villages/puthenchira, …) – default owner = that site
- *   2. <siteId> at the root
- *   3. flat keys at the root (prototype firmware) – default owner = prototypeSiteId
- * Any reading can be re-assigned to another site through config/sensorPlacement.
+ * All places a site's readings may live inside one database root, in priority
+ * order. `prefix` ("<sourceId>:") namespaces paths from non-primary databases;
+ * `ignoreKeys` skips stale root nodes for that database.
  */
-export const resolveVillageSources = (root, site, { placement = {}, prototypeSiteId = DEFAULT_SITE_ID } = {}) => {
+export const resolveVillageSources = (root, site, { placement = {}, prototypeSiteId = DEFAULT_SITE_ID, prefix = '', ignoreKeys = null } = {}) => {
     if (!isPlainObject(root) || !site) return [];
-    const { skip, containers } = inspectRoot(root);
+    const { skip, containers } = inspectRoot(root, ignoreKeys);
     const sources = [];
 
-    // Every site may receive placed readings from every other site's container
     for (const containerKey of containers) {
         for (const ownerSite of SITES) {
             const ownerKey = findKeyCI(root[containerKey], ownerSite.id) || findKeyCI(root[containerKey], ownerSite.name);
             if (!ownerKey || !isPlainObject(root[containerKey][ownerKey])) continue;
-            sources.push({
-                node: root[containerKey][ownerKey],
-                path: `${containerKey}/${ownerKey}`,
-                accept: makeAccept(site.id, ownerSite.id, placement),
-                ownerId: ownerSite.id
-            });
+            sources.push({ node: root[containerKey][ownerKey], path: `${prefix}${containerKey}/${ownerKey}`, accept: makeAccept(site.id, ownerSite.id, placement), ownerId: ownerSite.id, prefix });
         }
     }
-
     for (const ownerSite of SITES) {
         const ownerKey = findKeyCI(root, ownerSite.id) || findKeyCI(root, ownerSite.name);
         if (ownerKey && isPlainObject(root[ownerKey])) {
-            sources.push({ node: root[ownerKey], path: ownerKey, accept: makeAccept(site.id, ownerSite.id, placement), ownerId: ownerSite.id });
+            sources.push({ node: root[ownerKey], path: `${prefix}${ownerKey}`, accept: makeAccept(site.id, ownerSite.id, placement), ownerId: ownerSite.id, prefix });
         }
     }
+    sources.push({ node: root, path: '', skip, accept: makeAccept(site.id, prototypeSiteId, placement), ownerId: prototypeSiteId, prefix });
 
-    // Flat root (prototype firmware)
-    sources.push({ node: root, path: '', skip, accept: makeAccept(site.id, prototypeSiteId, placement), ownerId: prototypeSiteId });
-
-    // Sources owned by this site first so its own readings win ties
     return sources.sort((a, b) => Number(b.ownerId === site.id) - Number(a.ownerId === site.id));
+};
+
+const SCALAR_FIELDS = ['value', 'val', 'reading', 'state'];
+/** An object is a reading only when it wraps a scalar ({ value, timestamp }); otherwise it is a group to descend into. */
+const isReadingObject = (raw) => isPlainObject(raw) && SCALAR_FIELDS.some((k) => raw[k] !== undefined && !isPlainObject(raw[k]));
+
+const matchMetric = (nk, parentNorm, raw) => {
+    if (isPlainObject(raw) && !isReadingObject(raw)) return undefined; // e.g. powerData/solar/{voltage,current,power}
+    const ctx = contextMetric(parentNorm, nk);
+    if (ctx !== undefined) return ctx; // metric key or null (ignore)
+    return METRIC_LOOKUP.get(nk);
+};
+
+const convertValue = (metric, nk, raw) => {
+    let value = parseSensorValue(metric, raw);
+    const isRawCount = RAW_ALIAS_LOOKUP.has(nk) || (metric.rawMax !== undefined && value !== null && value > metric.rawMax);
+    if (value !== null && isRawCount && typeof metric.fromRaw === 'function') value = metric.fromRaw(value);
+    return value;
 };
 
 /**
  * Flatten a node into
  * `{ readings: { [metricKey]: { value, raw, path, timestamp?, coords? } }, updatedAt, found, locations, center }`.
- * `skip` = normalised top-level keys to ignore; `accept(path)` = ownership filter.
  */
-export const normalizeVillageNode = (node, basePath = '', skip = null, accept = null) => {
+export const normalizeVillageNode = (node, basePath = '', skip = null, accept = null, prefix = '') => {
     const readings = {};
     const locations = {};
     let updatedAt = null;
     let center = null;
 
-    const visit = (obj, path, depth) => {
+    const visit = (obj, path, depth, parentNorm) => {
         if (!isPlainObject(obj)) return;
         for (const [key, raw] of Object.entries(obj)) {
             const nk = normKey(key);
             if (depth === 0 && skip && skip.has(nk)) continue;
-            const childPath = path ? `${path}/${key}` : key;
-            const metricKey = METRIC_LOOKUP.get(nk);
+            const childPath = path ? `${path}/${key}` : `${prefix}${key}`;
+            const metricKey = matchMetric(nk, parentNorm, raw);
+            if (metricKey === null) continue; // context rule says ignore
 
             if (metricKey) {
                 if (accept && !accept(childPath)) continue;
                 if (readings[metricKey] === undefined) { // first match wins
                     const metric = METRIC_BY_KEY[metricKey];
-                    let value = parseSensorValue(metric, raw);
-                    const isRawCount = RAW_ALIAS_LOOKUP.has(nk) || (metric.rawMax !== undefined && value !== null && value > metric.rawMax);
-                    if (value !== null && isRawCount && typeof metric.fromRaw === 'function') value = metric.fromRaw(value);
-                    const entry = { value, raw, path: childPath };
+                    const entry = { value: convertValue(metric, nk, raw), raw, path: childPath };
                     if (isPlainObject(raw)) {
                         const ts = parseTimestamp(raw.timestamp ?? raw.updated_at ?? raw.updatedAt ?? raw.time ?? raw.ts);
                         if (ts) entry.timestamp = ts;
@@ -449,7 +471,6 @@ export const normalizeVillageNode = (node, basePath = '', skip = null, accept = 
                 if (ts && (!updatedAt || ts > updatedAt)) updatedAt = ts;
                 continue;
             }
-
             if (LOCATION_MAP_KEYS.has(nk) && isPlainObject(raw)) {
                 for (const [locKey, locRaw] of Object.entries(raw)) {
                     const locMetric = METRIC_LOOKUP.get(normKey(locKey));
@@ -458,18 +479,16 @@ export const normalizeVillageNode = (node, basePath = '', skip = null, accept = 
                 }
                 continue;
             }
-
             if (CENTER_KEYS.has(nk)) {
                 const coords = parseLatLng(raw);
                 if (coords && !center) center = coords;
                 continue;
             }
-
-            if (isPlainObject(raw) && depth < 3 && !isOfflineNode(raw)) visit(raw, childPath, depth + 1);
+            if (isPlainObject(raw) && depth < 3 && !isOfflineNode(raw)) visit(raw, childPath, depth + 1, nk);
         }
     };
 
-    if (!isOfflineNode(node)) visit(node, basePath, 0);
+    if (!isOfflineNode(node)) visit(node, basePath, 0, normKey(basePath.split('/').pop()));
     return { readings, updatedAt, found: Object.keys(readings).length, locations, center };
 };
 
@@ -477,65 +496,58 @@ export const normalizeVillageNode = (node, basePath = '', skip = null, accept = 
 export const normalizeVillageSources = (sources) => {
     const merged = { readings: {}, updatedAt: null, found: 0, locations: {}, center: null, path: null, paths: [] };
     sources.forEach((source) => {
-        const part = normalizeVillageNode(source.node, source.path, source.skip || null, source.accept || null);
+        const part = normalizeVillageNode(source.node, source.path, source.skip || null, source.accept || null, source.prefix || '');
         let used = false;
         Object.entries(part.readings).forEach(([key, entry]) => {
             if (merged.readings[key] === undefined) { merged.readings[key] = entry; used = true; }
         });
-        Object.entries(part.locations).forEach(([key, coords]) => {
-            if (!merged.locations[key]) merged.locations[key] = coords;
-        });
+        Object.entries(part.locations).forEach(([key, coords]) => { if (!merged.locations[key]) merged.locations[key] = coords; });
         if (!merged.center && part.center) merged.center = part.center;
         if (part.updatedAt && (!merged.updatedAt || part.updatedAt > merged.updatedAt)) merged.updatedAt = part.updatedAt;
-        if (used) merged.paths.push(source.path === '' ? '/' : `/${source.path}`);
+        if (used) merged.paths.push(source.path === '' ? `${source.prefix || ''}/` : `/${source.path}`);
     });
     merged.found = Object.keys(merged.readings).length;
     merged.path = merged.paths.length ? [...new Set(merged.paths)].join(' + ') : null;
     return merged;
 };
 
-/**
- * Every sensor path in the database that matches a known metric, with its
- * default owner. Used by the Site & Alerts configuration screen.
- */
-export const collectMetricPaths = (root, { prototypeSiteId = DEFAULT_SITE_ID } = {}) => {
+/** Every sensor path in a database root that matches a known metric, with its default owner. */
+export const collectMetricPaths = (root, { prototypeSiteId = DEFAULT_SITE_ID, prefix = '', ignoreKeys = null } = {}) => {
     const out = [];
     if (!isPlainObject(root)) return out;
-    const { skip, containers } = inspectRoot(root);
+    const { skip, containers } = inspectRoot(root, ignoreKeys);
 
-    const walk = (obj, path, depth, ownerId) => {
+    const walk = (obj, path, depth, ownerId, parentNorm) => {
         if (!isPlainObject(obj) || isOfflineNode(obj)) return;
         for (const [key, raw] of Object.entries(obj)) {
             const nk = normKey(key);
             if (depth === 0 && path === '' && skip.has(nk)) continue;
-            const childPath = path ? `${path}/${key}` : key;
-            const metricKey = METRIC_LOOKUP.get(nk);
+            const childPath = path ? `${path}/${key}` : `${prefix}${key}`;
+            const metricKey = matchMetric(nk, parentNorm, raw);
+            if (metricKey === null) continue;
             if (metricKey) {
                 const metric = METRIC_BY_KEY[metricKey];
-                let value = parseSensorValue(metric, raw);
-                const isRawCount = RAW_ALIAS_LOOKUP.has(nk) || (metric.rawMax !== undefined && value !== null && value > metric.rawMax);
-                if (value !== null && isRawCount && typeof metric.fromRaw === 'function') value = metric.fromRaw(value);
-                out.push({ path: childPath, key: pathKey(childPath), metricKey, value, defaultOwnerId: ownerId });
+                out.push({ path: childPath, key: pathKey(childPath), metricKey, value: convertValue(metric, nk, raw), defaultOwnerId: ownerId });
                 continue;
             }
             if (TIMESTAMP_KEYS.has(nk) || LOCATION_MAP_KEYS.has(nk) || CENTER_KEYS.has(nk)) continue;
-            if (isPlainObject(raw) && depth < 3) walk(raw, childPath, depth + 1, ownerId);
+            if (isPlainObject(raw) && depth < 3) walk(raw, childPath, depth + 1, ownerId, nk);
         }
     };
 
     for (const containerKey of containers) {
         for (const site of SITES) {
             const ownerKey = findKeyCI(root[containerKey], site.id) || findKeyCI(root[containerKey], site.name);
-            if (ownerKey && isPlainObject(root[containerKey][ownerKey])) walk(root[containerKey][ownerKey], `${containerKey}/${ownerKey}`, 0, site.id);
+            if (ownerKey && isPlainObject(root[containerKey][ownerKey])) walk(root[containerKey][ownerKey], `${prefix}${containerKey}/${ownerKey}`, 0, site.id, normKey(ownerKey));
         }
     }
     for (const site of SITES) {
         const ownerKey = findKeyCI(root, site.id) || findKeyCI(root, site.name);
-        if (ownerKey && isPlainObject(root[ownerKey])) walk(root[ownerKey], ownerKey, 0, site.id);
+        if (ownerKey && isPlainObject(root[ownerKey])) walk(root[ownerKey], `${prefix}${ownerKey}`, 0, site.id, normKey(ownerKey));
     }
-    walk(root, '', 0, prototypeSiteId);
+    walk(root, '', 0, prototypeSiteId, '');
     return out;
 };
 
-/** Path used when the dashboard has to write a value the node has not published yet. */
+/** Path used when the dashboard has to write a value the node has not published yet (primary database). */
 export const defaultMetricPath = (siteId, metric) => `villages/${siteId}/${metric.group}/${metric.key}`;

@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ref, onValue, set, update } from 'firebase/database';
-import { sensorDb, SENSOR_DB_URL } from '../firebase.config';
+import { sensorDb, getSensorDatabase, SENSOR_DB_URL } from '../firebase.config';
 import { SITES, VILLAGES, DEFAULT_SITE_ID, getSite, zonesOf, resolveZoneCenter } from '../data/villages';
 import {
     SENSOR_METRICS,
@@ -12,6 +12,7 @@ import {
     offsetCoords,
     pathKey
 } from '../data/sensorSchema';
+import { resolveSensorSources, parseSourcePath, sourcePrefix, PRIMARY_SOURCE_ID } from '../data/sensorSources';
 import { DEFAULT_ALERT_CONFIG, readLocalAlertSecrets, writeLocalAlertSecrets, splitAlertConfig } from '../utils/alertChannels';
 import { DEFAULT_UBIDOTS_CONFIG } from '../utils/ubidots';
 import { formatTimeIST, formatClockIST } from '../utils/timeUtils';
@@ -34,21 +35,24 @@ const readStoredSite = () => {
     }
 };
 
-/** Dashboard settings kept in the sensor database under config/. */
+/** Dashboard settings kept in the PRIMARY database under config/. */
 const readConfig = (root) => {
     const cfg = isObj(root) && isObj(root.config) ? root.config : {};
     const prototypeSiteId = SITES.some((s) => s.id === cfg.prototypeSite) ? cfg.prototypeSite : DEFAULT_SITE_ID;
-    // apiKey/webhookUrl are never trusted from Firebase (public, no-auth database) even if an
-    // older write left them there; only the shared, non-secret alert fields are read back.
     const rawAlerts = isObj(cfg.alerts) ? cfg.alerts : {};
-    const { apiKey: _ignoredKey, webhookUrl: _ignoredWebhook, ...sharedAlerts } = rawAlerts;
+    const { apiKey: _ignoredKey, webhookUrl: _ignoredWebhook, ...sharedAlerts } = rawAlerts; // secrets never come from Firebase
+    const sources = resolveSensorSources(cfg.sources).map((s) => (s.primary && !cfg.sources?.[s.id]?.site ? { ...s, site: prototypeSiteId } : s));
+    const parkingSourceId = sources.some((s) => s.id === cfg.parkingSource) ? cfg.parkingSource : PRIMARY_SOURCE_ID;
     return {
         placement: isObj(cfg.sensorPlacement) ? cfg.sensorPlacement : {},
         prototypeSiteId,
         zoneOverrides: isObj(cfg.zones) ? cfg.zones : {},
         sharedAlertConfig: { ...DEFAULT_ALERT_CONFIG, ...sharedAlerts },
         ubidotsConfig: { ...DEFAULT_UBIDOTS_CONFIG, ...(isObj(cfg.ubidots) ? cfg.ubidots : {}) },
-        firebaseBins: isObj(root) && isObj(root.waste) && isObj(root.waste.bins) ? root.waste.bins : {}
+        firebaseBins: isObj(root) && isObj(root.waste) && isObj(root.waste.bins) ? root.waste.bins : {},
+        sources,
+        sourceIgnoreKeys: Object.fromEntries(sources.map((s) => [s.id, Array.isArray(cfg.sources?.[s.id]?.ignoreKeys) ? cfg.sources[s.id].ignoreKeys : []])),
+        parkingSourceId
     };
 };
 
@@ -61,30 +65,19 @@ const zoneForReading = (site, metric, hit, placement) => {
 
 const emptyEntry = (site) => ({
     readings: Object.fromEntries(SENSOR_METRICS.map((metric) => [metric.key, {
-        ...metric,
-        value: null,
-        raw: null,
-        path: null,
-        ...evaluateMetric(metric, null),
-        lastUpdated: null,
-        lastUpdatedAt: null,
-        coords: null,
-        ...zoneForReading(site, metric, null, {}),
-        history: []
+        ...metric, value: null, raw: null, path: null, sourceId: null, ...evaluateMetric(metric, null),
+        lastUpdated: null, lastUpdatedAt: null, coords: null, ...zoneForReading(site, metric, null, {}), history: []
     }])),
-    updatedAt: null,
-    path: null,
-    hasData: false,
-    locations: {},
-    center: null
+    updatedAt: null, path: null, hasData: false, locations: {}, center: null
 });
 
 export const VillageSensorsProvider = ({ children }) => {
     const [selectedVillageId, setSelectedVillageIdState] = useState(readStoredSite);
-    const [root, setRoot] = useState(null);
+    const [primaryRoot, setPrimaryRoot] = useState(null);
+    const [extraRoots, setExtraRoots] = useState({});        // sourceId -> root snapshot
     const [villageData, setVillageData] = useState({});
     const [config, setConfig] = useState(() => readConfig(null));
-    const [alertSecrets, setAlertSecrets] = useState(readLocalAlertSecrets); // this browser only, never sent to Firebase
+    const [alertSecrets, setAlertSecrets] = useState(readLocalAlertSecrets); // this browser only
     const [connected, setConnected] = useState(false);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -106,88 +99,14 @@ export const VillageSensorsProvider = ({ children }) => {
         return () => unsubscribe();
     }, []);
 
-    // One root listener: telemetry for every site plus the config/ node
+    // Primary database: telemetry + all dashboard configuration
     useEffect(() => {
         const unsubscribe = onValue(ref(sensorDb, '/'), (snapshot) => {
             const data = snapshot.val();
-            const cfg = readConfig(data);
-            const now = new Date();
-            const next = {};
-            let liveChanged = false;
-
-            SITES.forEach((site) => {
-                const sources = resolveVillageSources(data, site, { placement: cfg.placement, prototypeSiteId: cfg.prototypeSiteId });
-                const normalized = sources.length
-                    ? normalizeVillageSources(sources)
-                    : { readings: {}, updatedAt: null, found: 0, locations: {}, center: null, path: null };
-
-                const readings = {};
-                const liveValues = {};
-                let villageChanged = false;
-
-                SENSOR_METRICS.forEach((metric) => {
-                    const hit = normalized.readings[metric.key];
-                    const value = hit ? hit.value : null;
-                    const historyKey = `${site.id}:${metric.key}`;
-                    const previous = lastRef.current[historyKey];
-                    let lastChanged = previous?.time || null;
-                    if (value !== null && value !== undefined) liveValues[metric.key] = value;
-
-                    if (value !== null && value !== undefined && (!previous || previous.value !== value)) {
-                        villageChanged = true;
-                        lastChanged = hit.timestamp || now;
-                        lastRef.current[historyKey] = { value, time: lastChanged };
-                        const history = historyRef.current[historyKey] || [];
-                        const nextHistory = [...history, { time: formatClockIST(lastChanged), value }];
-                        historyRef.current[historyKey] = nextHistory.length > MAX_HISTORY_POINTS
-                            ? nextHistory.slice(nextHistory.length - MAX_HISTORY_POINTS)
-                            : nextHistory;
-                    }
-
-                    readings[metric.key] = {
-                        ...metric,
-                        value,
-                        raw: hit?.raw ?? null,
-                        path: hit?.path ?? null,
-                        ...evaluateMetric(metric, value),
-                        lastUpdated: lastChanged ? formatTimeIST(lastChanged) : null,
-                        lastUpdatedAt: lastChanged,
-                        coords: hit?.coords ?? null,
-                        ...zoneForReading(site, metric, hit, cfg.placement),
-                        history: historyRef.current[historyKey] || []
-                    };
-                });
-
-                next[site.id] = {
-                    readings,
-                    updatedAt: normalized.updatedAt || null,
-                    path: normalized.found > 0 ? normalized.path : null,
-                    hasData: normalized.found > 0,
-                    locations: normalized.locations || {},
-                    center: normalized.center || null
-                };
-
-                if (villageChanged) {
-                    const list = liveSamplesRef.current[site.id] || [];
-                    const tail = list[list.length - 1];
-                    const nowMs = now.getTime();
-                    if (tail && nowMs - tail.ts < SAMPLE_MERGE_MS) Object.assign(tail, liveValues, { ts: nowMs });
-                    else list.push({ ts: nowMs, source: 'live', ...liveValues });
-                    liveSamplesRef.current[site.id] = list.length > MAX_LIVE_SAMPLES ? list.slice(-MAX_LIVE_SAMPLES) : list;
-                    liveChanged = true;
-                }
-            });
-
-            if (liveChanged) {
-                setLiveSamples(Object.fromEntries(Object.entries(liveSamplesRef.current).map(([id, list]) => [id, list.map((s) => ({ ...s }))])));
-            }
-
-            setRoot(data);
-            setConfig(cfg);
-            setVillageData(next);
-            setLastSyncAt(now);
-            setError(null);
+            setPrimaryRoot(data);
+            setConfig(readConfig(data));
             setLoading(false);
+            setError(null);
         }, (err) => {
             console.error('Sensor database error:', err);
             setError(err);
@@ -196,12 +115,114 @@ export const VillageSensorsProvider = ({ children }) => {
         return () => unsubscribe();
     }, []);
 
-    /** Write a value back to the field node (e.g. pump ON/OFF), keeping the type the device published. */
+    // Extra databases listed in config/sources
+    const extraSourcesKey = config.sources.filter((s) => !s.primary && s.enabled).map((s) => `${s.id}|${s.url}`).join(',');
+    useEffect(() => {
+        const extras = config.sources.filter((s) => !s.primary && s.enabled);
+        const unsubs = extras.map((source) => onValue(ref(getSensorDatabase(source.url), '/'), (snap) => {
+            setExtraRoots((prev) => ({ ...prev, [source.id]: snap.val() }));
+        }, (err) => {
+            console.error(`Sensor source ${source.id} error:`, err);
+            setExtraRoots((prev) => ({ ...prev, [source.id]: null }));
+        }));
+        setExtraRoots((prev) => Object.fromEntries(Object.entries(prev).filter(([id]) => extras.some((s) => s.id === id))));
+        return () => unsubs.forEach((u) => u());
+    }, [extraSourcesKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // Merge every source into per-site readings whenever any root or the config changes
+    useEffect(() => {
+        if (primaryRoot === null && Object.keys(extraRoots).length === 0) return;
+        const now = new Date();
+        const next = {};
+        let liveChanged = false;
+        const rootsBySource = { [PRIMARY_SOURCE_ID]: primaryRoot, ...extraRoots };
+
+        SITES.forEach((site) => {
+            const parts = [];
+            config.sources.filter((s) => s.enabled).forEach((source) => {
+                const root = rootsBySource[source.id];
+                if (!isObj(root)) return;
+                parts.push(...resolveVillageSources(root, site, {
+                    placement: config.placement,
+                    prototypeSiteId: source.site,
+                    prefix: sourcePrefix(source),
+                    ignoreKeys: config.sourceIgnoreKeys[source.id]
+                }));
+            });
+            const normalized = parts.length ? normalizeVillageSources(parts) : { readings: {}, updatedAt: null, found: 0, locations: {}, center: null, path: null };
+
+            const readings = {};
+            const liveValues = {};
+            let villageChanged = false;
+
+            SENSOR_METRICS.forEach((metric) => {
+                const hit = normalized.readings[metric.key];
+                const value = hit ? hit.value : null;
+                const historyKey = `${site.id}:${metric.key}`;
+                const previous = lastRef.current[historyKey];
+                let lastChanged = previous?.time || null;
+                if (value !== null && value !== undefined) liveValues[metric.key] = value;
+
+                if (value !== null && value !== undefined && (!previous || previous.value !== value)) {
+                    villageChanged = true;
+                    lastChanged = hit.timestamp || now;
+                    lastRef.current[historyKey] = { value, time: lastChanged };
+                    const history = historyRef.current[historyKey] || [];
+                    const nextHistory = [...history, { time: formatClockIST(lastChanged), value }];
+                    historyRef.current[historyKey] = nextHistory.length > MAX_HISTORY_POINTS ? nextHistory.slice(nextHistory.length - MAX_HISTORY_POINTS) : nextHistory;
+                }
+
+                readings[metric.key] = {
+                    ...metric,
+                    value,
+                    raw: hit?.raw ?? null,
+                    path: hit?.path ?? null,
+                    sourceId: hit?.path ? parseSourcePath(hit.path).sourceId : null,
+                    ...evaluateMetric(metric, value),
+                    lastUpdated: lastChanged ? formatTimeIST(lastChanged) : null,
+                    lastUpdatedAt: lastChanged,
+                    coords: hit?.coords ?? null,
+                    ...zoneForReading(site, metric, hit, config.placement),
+                    history: historyRef.current[historyKey] || []
+                };
+            });
+
+            next[site.id] = {
+                readings,
+                updatedAt: normalized.updatedAt || null,
+                path: normalized.found > 0 ? normalized.path : null,
+                hasData: normalized.found > 0,
+                locations: normalized.locations || {},
+                center: normalized.center || null
+            };
+
+            if (villageChanged) {
+                const list = liveSamplesRef.current[site.id] || [];
+                const tail = list[list.length - 1];
+                const nowMs = now.getTime();
+                if (tail && nowMs - tail.ts < SAMPLE_MERGE_MS) Object.assign(tail, liveValues, { ts: nowMs });
+                else list.push({ ts: nowMs, source: 'live', ...liveValues });
+                liveSamplesRef.current[site.id] = list.length > MAX_LIVE_SAMPLES ? list.slice(-MAX_LIVE_SAMPLES) : list;
+                liveChanged = true;
+            }
+        });
+
+        if (liveChanged) {
+            setLiveSamples(Object.fromEntries(Object.entries(liveSamplesRef.current).map(([id, list]) => [id, list.map((s) => ({ ...s }))])));
+        }
+        setVillageData(next);
+        setLastSyncAt(now);
+    }, [primaryRoot, extraRoots, config]);
+
+    /** Write a value back to the node that published it (relays), keeping the type the device used. */
     const setMetricValue = useCallback(async (siteId, metricKey, nextValue) => {
         const metric = SENSOR_METRICS.find((entry) => entry.key === metricKey);
         if (!metric) throw new Error(`Unknown metric: ${metricKey}`);
         const reading = villageData[siteId]?.readings?.[metricKey];
-        let path = reading?.path || defaultMetricPath(siteId, metric);
+        const { sourceId, path: rawPath } = parseSourcePath(reading?.path || defaultMetricPath(siteId, metric));
+        const source = config.sources.find((s) => s.id === sourceId);
+        const database = source ? getSensorDatabase(source.url) : sensorDb;
+        let path = rawPath;
         let payload = nextValue;
         if (metric.binary) {
             const raw = reading?.raw;
@@ -213,27 +234,19 @@ export const VillageSensorsProvider = ({ children }) => {
             else if (typeof raw === 'number') payload = nextValue ? 1 : 0;
             else payload = nextValue ? 'on' : 'off';
         }
-        await set(ref(sensorDb, path), payload);
-    }, [villageData]);
+        await set(ref(database, path), payload);
+    }, [villageData, config.sources]);
 
-    // ── Configuration writers (Site & Alerts screen) ──────────────────────────
-    const savePlacement = useCallback(async (entries) => {
-        await update(ref(sensorDb, 'config/sensorPlacement'), entries);
-    }, []);
-    const savePrototypeSite = useCallback(async (siteId) => {
-        await set(ref(sensorDb, 'config/prototypeSite'), siteId);
-    }, []);
-    const saveZoneOverrides = useCallback(async (siteId, entries) => {
-        await update(ref(sensorDb, `config/zones/${siteId}`), entries);
-    }, []);
-    const saveUbidotsConfig = useCallback(async (cfg) => {
-        await set(ref(sensorDb, 'config/ubidots'), { ...DEFAULT_UBIDOTS_CONFIG, ...cfg });
-    }, []);
-
+    // ── Configuration writers (Site & Alerts screen; always the primary database) ──
+    const savePlacement = useCallback(async (entries) => { await update(ref(sensorDb, 'config/sensorPlacement'), entries); }, []);
+    const savePrototypeSite = useCallback(async (siteId) => { await set(ref(sensorDb, 'config/prototypeSite'), siteId); }, []);
+    const saveZoneOverrides = useCallback(async (siteId, entries) => { await update(ref(sensorDb, `config/zones/${siteId}`), entries); }, []);
+    const saveUbidotsConfig = useCallback(async (cfg) => { await set(ref(sensorDb, 'config/ubidots'), { ...DEFAULT_UBIDOTS_CONFIG, ...cfg }); }, []);
+    const saveSources = useCallback(async (entries) => { await update(ref(sensorDb, 'config/sources'), entries); }, []);
+    const saveParkingSource = useCallback(async (sourceId) => { await set(ref(sensorDb, 'config/parkingSource'), sourceId); }, []);
     const saveAlertConfig = useCallback(async (cfg) => {
         const { shared, secret } = splitAlertConfig({ ...DEFAULT_ALERT_CONFIG, ...cfg });
-        // Secrets stay on this device; only the shared settings go to the public database.
-        writeLocalAlertSecrets(secret);
+        writeLocalAlertSecrets(secret);       // secrets stay on this device
         setAlertSecrets(secret);
         await set(ref(sensorDb, 'config/alerts'), shared);
     }, []);
@@ -246,23 +259,15 @@ export const VillageSensorsProvider = ({ children }) => {
     const zones = useMemo(() => {
         const counts = {};
         Object.values(selectedEntry.readings).forEach((r) => { if (r.zoneId && r.value !== null) counts[r.zoneId] = (counts[r.zoneId] || 0) + 1; });
-        return zonesOf(selectedVillage).map((zone) => ({
-            ...zone,
-            center: resolveZoneCenter(selectedVillage, zone.id, config.zoneOverrides),
-            sensorCount: counts[zone.id] || 0
-        }));
+        return zonesOf(selectedVillage).map((zone) => ({ ...zone, center: resolveZoneCenter(selectedVillage, zone.id, config.zoneOverrides), sensorCount: counts[zone.id] || 0 }));
     }, [selectedVillage, selectedEntry, config.zoneOverrides]);
 
-    // Markers: published coords > locations map > zone centre (spread in a small ring) > site centre + offset
     const markers = useMemo(() => {
         if (selectedVillage.deployment !== 'live' || !villageCenter) return [];
         const perZone = {};
         SENSOR_METRICS.forEach((metric) => {
             const reading = selectedEntry.readings[metric.key];
-            if (reading?.zoneId && !reading.coords && !selectedEntry.locations?.[metric.key]) {
-                perZone[reading.zoneId] = perZone[reading.zoneId] || [];
-                perZone[reading.zoneId].push(metric.key);
-            }
+            if (reading?.zoneId && !reading.coords && !selectedEntry.locations?.[metric.key]) (perZone[reading.zoneId] = perZone[reading.zoneId] || []).push(metric.key);
         });
         const ringRadius = selectedVillage.type === 'campus' ? 0.00013 : 0.00028;
         return SENSOR_METRICS.map((metric) => {
@@ -275,10 +280,7 @@ export const VillageSensorsProvider = ({ children }) => {
                     const members = perZone[reading.zoneId] || [metric.key];
                     const idx = members.indexOf(metric.key);
                     if (members.length === 1) coords = zone.center;
-                    else {
-                        const angle = (2 * Math.PI * idx) / members.length;
-                        coords = [zone.center[0] + ringRadius * Math.sin(angle), zone.center[1] + ringRadius * Math.cos(angle)];
-                    }
+                    else { const angle = (2 * Math.PI * idx) / members.length; coords = [zone.center[0] + ringRadius * Math.sin(angle), zone.center[1] + ringRadius * Math.cos(angle)]; }
                     source = 'zone';
                 }
             }
@@ -287,21 +289,32 @@ export const VillageSensorsProvider = ({ children }) => {
         });
     }, [selectedVillage, selectedEntry, villageCenter, zones]);
 
-    // Every sensor path in the database, with where it currently belongs (for the placement table)
-    const sensorPaths = useMemo(() => collectMetricPaths(root, { prototypeSiteId: config.prototypeSiteId }).map((entry) => {
-        const placed = config.placement[entry.key];
-        const siteId = placed?.site && getSite(placed.site) ? placed.site : entry.defaultOwnerId;
-        const site = getSite(siteId);
-        const metric = SENSOR_METRICS.find((m) => m.key === entry.metricKey);
-        const zoneId = placed?.zone || metric?.defaultZone?.[site?.type] || null;
-        return { ...entry, siteId, zoneId, placed: !!placed, metric };
-    }), [root, config]);
+    // Every sensor path in every database, with where it currently belongs (placement table)
+    const sensorPaths = useMemo(() => {
+        const rootsBySource = { [PRIMARY_SOURCE_ID]: primaryRoot, ...extraRoots };
+        const out = [];
+        config.sources.filter((s) => s.enabled).forEach((source) => {
+            const root = rootsBySource[source.id];
+            if (!isObj(root)) return;
+            collectMetricPaths(root, { prototypeSiteId: source.site, prefix: sourcePrefix(source), ignoreKeys: config.sourceIgnoreKeys[source.id] }).forEach((entry) => {
+                const placed = config.placement[entry.key];
+                const siteId = placed?.site && getSite(placed.site) ? placed.site : entry.defaultOwnerId;
+                const site = getSite(siteId);
+                const metric = SENSOR_METRICS.find((m) => m.key === entry.metricKey);
+                const zoneId = placed?.zone || metric?.defaultZone?.[site?.type] || null;
+                out.push({ ...entry, siteId, zoneId, placed: !!placed, metric, sourceId: source.id, sourceLabel: source.label });
+            });
+        });
+        return out;
+    }, [primaryRoot, extraRoots, config]);
 
-    // Shared (public) settings + this device's own secret channel key/webhook, merged client-side.
-    const effectiveAlertConfig = useMemo(
-        () => ({ ...config.sharedAlertConfig, ...alertSecrets }),
-        [config.sharedAlertConfig, alertSecrets]
-    );
+    const effectiveAlertConfig = useMemo(() => ({ ...config.sharedAlertConfig, ...alertSecrets }), [config.sharedAlertConfig, alertSecrets]);
+    const parkingSource = config.sources.find((s) => s.id === config.parkingSourceId) || config.sources.find((s) => s.primary);
+    const sourceStatus = useMemo(() => config.sources.map((s) => ({
+        ...s,
+        connected: s.primary ? primaryRoot !== null : isObj(extraRoots[s.id]),
+        rootKeys: isObj(s.primary ? primaryRoot : extraRoots[s.id]) ? Object.keys(s.primary ? primaryRoot : extraRoots[s.id]).filter((k) => !['config', 'alerts'].includes(k)) : []
+    })), [config.sources, primaryRoot, extraRoots]);
 
     const value = useMemo(() => ({
         sites: SITES,
@@ -325,19 +338,24 @@ export const VillageSensorsProvider = ({ children }) => {
         error,
         setMetricValue,
         sensorDbUrl: SENSOR_DB_URL,
+        sources: sourceStatus,
+        parkingSourceId: config.parkingSourceId,
+        parkingDbUrl: parkingSource ? parkingSource.url : SENSOR_DB_URL,
         placement: config.placement,
         prototypeSiteId: config.prototypeSiteId,
         zoneOverrides: config.zoneOverrides,
         alertConfig: effectiveAlertConfig,
         ubidotsConfig: config.ubidotsConfig,
         firebaseBins: config.firebaseBins,
-        saveUbidotsConfig,
         sensorPaths,
         savePlacement,
         savePrototypeSite,
         saveZoneOverrides,
-        saveAlertConfig
-    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, connected, loading, error, setMetricValue, config, effectiveAlertConfig, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig, saveUbidotsConfig]);
+        saveAlertConfig,
+        saveUbidotsConfig,
+        saveSources,
+        saveParkingSource
+    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, connected, loading, error, setMetricValue, sourceStatus, config, effectiveAlertConfig, parkingSource, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig, saveUbidotsConfig, saveSources, saveParkingSource]);
 
     return (
         <VillageSensorsContext.Provider value={value}>

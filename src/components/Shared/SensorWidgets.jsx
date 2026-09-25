@@ -1,13 +1,13 @@
 import React from 'react';
 import {
     Activity, ChevronDown, CloudRain, Cylinder, Droplets, Eye, FlaskConical, House, MapPin,
-    Power, Sprout, Sun, Thermometer, Waves, Wifi, WifiOff, Wind, Zap
+    Power, Sprout, Sun, Thermometer, Waves, Wifi, WifiOff, Wind, Zap, ShieldAlert, Plug
 } from 'lucide-react';
 import { useVillageSensors } from '../../hooks/useVillageSensors';
 
 // Icon names referenced from src/data/sensorSchema.js
 export const METRIC_ICONS = {
-    Activity, CloudRain, Cylinder, Droplets, Eye, FlaskConical, House, Power, Sprout, Sun, Thermometer, Waves, Wind, Zap
+    Activity, CloudRain, Cylinder, Droplets, Eye, FlaskConical, House, Power, Sprout, Sun, Thermometer, Waves, Wind, Zap, ShieldAlert, Plug
 };
 
 export const metricIcon = (name) => METRIC_ICONS[name] || Activity;
