@@ -1,6 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useVillageSensors } from '../hooks/useVillageSensors';
-import { fetchUbidotsBins, classifyBin, fillRatePerHour, DEFAULT_UBIDOTS_CONFIG } from '../utils/ubidots';
+import { fetchUbidotsBins, classifyBin, fillRatePerHour, ubidotsLiveUrl, DEFAULT_UBIDOTS_CONFIG } from '../utils/ubidots';
 import { SITES, CAMPUS_ID, zonesOf, resolveZoneCenter } from '../data/villages';
 import { formatTimeIST } from '../utils/timeUtils';
 
@@ -154,6 +154,7 @@ export const WasteBinsProvider = ({ children }) => {
         fetchedAt: raw.fetchedAt,
         fetchedAtLabel: raw.fetchedAt ? formatTimeIST(new Date(raw.fetchedAt)) : null,
         dashboardUrl: config.dashboardUrl,
+        liveUrl: ubidotsLiveUrl(config.dashboardUrl),
         refresh
     }), [bins, stats, binsForSite, loading, error, config, raw.fetchedAt, refresh]);
 

@@ -206,7 +206,7 @@ const liveBinToSensor = (bin) => {
 };
 
 export const WasteManagement = () => {
-    const { bins: liveBins, stats: liveStats, loading: liveLoading, error: liveError, fetchedAtLabel, dashboardUrl, refresh } = useWasteBins();
+    const { bins: liveBins, stats: liveStats, loading: liveLoading, error: liveError, fetchedAtLabel, liveUrl: dashboardUrl, refresh } = useWasteBins();
     const [selectedZone, setSelectedZone] = useState('All Zones');
     const [timeWindow, setTimeWindow] = useState('24h');
     const [controlProfile, setControlProfile] = useState('balanced');
@@ -371,6 +371,15 @@ export const WasteManagement = () => {
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold uppercase tracking-wider">
+                    <a
+                        href={dashboardUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-600 text-white normal-case tracking-normal hover:bg-amber-700 shadow-sm"
+                        title="Open the live Ubidots LoRaWAN dashboard in a new tab"
+                    >
+                        <ExternalLink size={13} /> Live Ubidots dashboard
+                    </a>
                     <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800">{monitoringStats.lorawan} LoRaWAN bin{monitoringStats.lorawan === 1 ? '' : 's'}</span>
                     <span className="px-2 py-1 rounded-full bg-green-100 text-green-700">{monitoringStats.online} nodes online</span>
                     <span className="px-2 py-1 rounded-full bg-cyan-100 text-cyan-700">{monitoringStats.edge} edge nodes</span>

@@ -183,11 +183,11 @@ export const MapVisualizer = ({
 
     const { selectedVillage: site, selectedVillageId, villageCenter, markers, zones, hasData } = useVillageSensors();
     const { binsForSite } = useWasteBins();
-    const siteBins = binsForSite(selectedVillageId).filter((bin) => bin.coords && (filterCategoryMatches(filterCategory, 'waste')));
 
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterCategory, setFilterCategory] = useState(initialCategory);
     useEffect(() => { setFilterCategory(initialCategory); }, [initialCategory]);
+    const siteBins = binsForSite(selectedVillageId).filter((bin) => bin.coords && filterCategoryMatches(filterCategory, 'waste'));
 
     const getAssetColor = (asset) => {
         if (!asset) return '#64748b';

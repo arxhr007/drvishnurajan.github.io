@@ -52,8 +52,8 @@ export const WasteBinCard = ({ bin, compact = false, onClick }) => {
                 <p className="text-xs text-slate-600 mt-1">{bin.stateLabel}{bin.status ? <span className="text-slate-400"> · node says "{bin.status}"</span> : null}</p>
 
                 {!compact && bin.sparkline?.length > 1 && (
-                    <div className="h-10 mt-2 -mx-1">
-                        <ResponsiveContainer width="100%" height="100%">
+                    <div className="mt-2 w-full" style={{ height: 40, minWidth: 0 }}>
+                        <ResponsiveContainer width="100%" height={40} minWidth={0}>
                             <AreaChart data={bin.sparkline} margin={{ top: 2, right: 2, bottom: 0, left: 2 }}>
                                 <YAxis hide domain={[0, 100]} />
                                 <Area type="monotone" dataKey="v" stroke={style.fill} fill={style.fill} fillOpacity={0.2} strokeWidth={2} dot={false} isAnimationActive={false} />

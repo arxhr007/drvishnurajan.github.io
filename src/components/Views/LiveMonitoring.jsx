@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Activity, Wifi, Battery, Server, ArrowLeft, Clock, MapPin, User, Landmark, Gauge, Database, Radio, AlertCircle, Trash2 } from 'lucide-react';
+import { Activity, Wifi, Battery, Server, ArrowLeft, Clock, MapPin, User, Landmark, Gauge, Database, Radio, AlertCircle, Trash2, ExternalLink } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useAssets } from '../../hooks/useAssets';
 import { useVillageSensors } from '../../hooks/useVillageSensors';
@@ -697,8 +697,7 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
         readings, hasData, villagePath, villageUpdatedAt, sensorDbUrl, lastSyncAt, loading: sensorsLoading
     } = useVillageSensors();
     const campusSite = sites.find((s) => s.type === 'campus');
-    const { binsForSite, stats: binStats, fetchedAtLabel: binsFetchedAt, error: binsError } = useWasteBins();
-    const siteBins = binsForSite(selectedVillageId).filter((bin) => matchesFilter(bin.online));
+    const { binsForSite, stats: binStats, fetchedAtLabel: binsFetchedAt, error: binsError, liveUrl: binsLiveUrl } = useWasteBins();
 
     const [selectedAssetId, setSelectedAssetId] = useState(null);
     const [selectedMetricKey, setSelectedMetricKey] = useState(null);
@@ -738,6 +737,7 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
     const metricOffline = isLiveVillage ? metricList.length - metricOnline : 0;
     const assetOnline = assets.filter((a) => a.status !== 'offline').length;
     const allSiteBins = binsForSite(selectedVillageId);
+    const siteBins = allSiteBins.filter((bin) => matchesFilter(bin.online));
     const binOnline = allSiteBins.filter((bin) => bin.online).length;
     const onlineCount = metricOnline + assetOnline + binOnline;
     const offlineCount = metricOffline + (assets.length - assetOnline) + (allSiteBins.length - binOnline);
@@ -876,6 +876,15 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
                                     <Trash2 size={14} />
                                 </div>
                                 <h3 className="text-sm font-bold uppercase tracking-wider text-slate-600">Waste Bins · LoRaWAN</h3>
+                                <a
+                                    href={binsLiveUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-amber-600 text-white text-[11px] font-semibold hover:bg-amber-700 shadow-sm"
+                                    title="Open the live Ubidots LoRaWAN dashboard in a new tab"
+                                >
+                                    <ExternalLink size={11} /> Live Ubidots dashboard
+                                </a>
                                 <span className="text-xs text-slate-400">· {allSiteBins.length} bin{allSiteBins.length === 1 ? '' : 's'} via Ubidots{binsFetchedAt ? ` · polled ${binsFetchedAt}` : ''}</span>
                                 {binsError && <span className="text-xs text-red-500">· {binsError}</span>}
                             </div>

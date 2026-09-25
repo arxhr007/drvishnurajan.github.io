@@ -25,6 +25,19 @@ export const DEFAULT_UBIDOTS_CONFIG = {
 
 const TOKEN_MARGIN_MS = 90 * 1000;
 
+/** The dashboard link to open for people: full-screen layout without the layers/context bars. */
+export const ubidotsLiveUrl = (dashboardUrl = DEFAULT_UBIDOTS_DASHBOARD_URL) => {
+    try {
+        const u = new URL(dashboardUrl);
+        u.searchParams.set('navbar', 'true');
+        u.searchParams.set('contextbar', 'false');
+        u.searchParams.set('layersBar', 'false');
+        return u.toString();
+    } catch {
+        return dashboardUrl;
+    }
+};
+
 const apiBaseFor = (dashboardUrl) => {
     try {
         const u = new URL(dashboardUrl);
