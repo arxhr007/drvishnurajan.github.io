@@ -13,6 +13,7 @@ import {
     pathKey
 } from '../data/sensorSchema';
 import { DEFAULT_ALERT_CONFIG, readLocalAlertSecrets, writeLocalAlertSecrets, splitAlertConfig } from '../utils/alertChannels';
+import { DEFAULT_UBIDOTS_CONFIG } from '../utils/ubidots';
 import { formatTimeIST, formatClockIST } from '../utils/timeUtils';
 
 export const VillageSensorsContext = createContext(null);
@@ -45,7 +46,9 @@ const readConfig = (root) => {
         placement: isObj(cfg.sensorPlacement) ? cfg.sensorPlacement : {},
         prototypeSiteId,
         zoneOverrides: isObj(cfg.zones) ? cfg.zones : {},
-        sharedAlertConfig: { ...DEFAULT_ALERT_CONFIG, ...sharedAlerts }
+        sharedAlertConfig: { ...DEFAULT_ALERT_CONFIG, ...sharedAlerts },
+        ubidotsConfig: { ...DEFAULT_UBIDOTS_CONFIG, ...(isObj(cfg.ubidots) ? cfg.ubidots : {}) },
+        firebaseBins: isObj(root) && isObj(root.waste) && isObj(root.waste.bins) ? root.waste.bins : {}
     };
 };
 
@@ -223,6 +226,10 @@ export const VillageSensorsProvider = ({ children }) => {
     const saveZoneOverrides = useCallback(async (siteId, entries) => {
         await update(ref(sensorDb, `config/zones/${siteId}`), entries);
     }, []);
+    const saveUbidotsConfig = useCallback(async (cfg) => {
+        await set(ref(sensorDb, 'config/ubidots'), { ...DEFAULT_UBIDOTS_CONFIG, ...cfg });
+    }, []);
+
     const saveAlertConfig = useCallback(async (cfg) => {
         const { shared, secret } = splitAlertConfig({ ...DEFAULT_ALERT_CONFIG, ...cfg });
         // Secrets stay on this device; only the shared settings go to the public database.
@@ -322,12 +329,15 @@ export const VillageSensorsProvider = ({ children }) => {
         prototypeSiteId: config.prototypeSiteId,
         zoneOverrides: config.zoneOverrides,
         alertConfig: effectiveAlertConfig,
+        ubidotsConfig: config.ubidotsConfig,
+        firebaseBins: config.firebaseBins,
+        saveUbidotsConfig,
         sensorPaths,
         savePlacement,
         savePrototypeSite,
         saveZoneOverrides,
         saveAlertConfig
-    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, connected, loading, error, setMetricValue, config, effectiveAlertConfig, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig]);
+    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, connected, loading, error, setMetricValue, config, effectiveAlertConfig, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig, saveUbidotsConfig]);
 
     return (
         <VillageSensorsContext.Provider value={value}>

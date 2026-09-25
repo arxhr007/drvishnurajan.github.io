@@ -21,6 +21,7 @@ import { SENSOR_GROUPS } from '../../../data/sensorSchema';
 import { campusBoundary } from '../../../data/villages';
 import { useAssets } from '../../../hooks/useAssets';
 import { useVillageSensors } from '../../../hooks/useVillageSensors';
+import { useWasteBins } from '../../../hooks/useWasteBins';
 import { useAuth } from '../../../context/AuthContext';
 import { VillageSelector, SensorConnectionBadge, formatReading, statusStyle } from '../../Shared/SensorWidgets';
 
@@ -28,7 +29,9 @@ import { VillageSelector, SensorConnectionBadge, formatReading, statusStyle } fr
 export const OSM_TILE_URL = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
 export const OSM_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors';
 
-const GROUP_COLORS = { agriculture: '#10b981', water: '#06b6d4', energy: '#eab308', power: '#8b5cf6' };
+const GROUP_COLORS = { agriculture: '#10b981', water: '#06b6d4', energy: '#eab308', power: '#8b5cf6', waste: '#b45309' };
+const BIN_STATE_COLORS = { critical: '#ef4444', warning: '#f59e0b', normal: '#10b981', unknown: '#94a3b8' };
+const filterCategoryMatches = (filterCategory, group) => filterCategory === 'all' || filterCategory === group;
 const STATUS_STROKE = { critical: '#ef4444', warning: '#f59e0b', offline: '#94a3b8' };
 const SITE_COLOR = '#6366f1';
 const ZONE_COLORS = {
@@ -179,6 +182,8 @@ export const MapVisualizer = ({
     const safeAssets = Array.isArray(assets) ? assets : [];
 
     const { selectedVillage: site, selectedVillageId, villageCenter, markers, zones, hasData } = useVillageSensors();
+    const { binsForSite } = useWasteBins();
+    const siteBins = binsForSite(selectedVillageId).filter((bin) => bin.coords && (filterCategoryMatches(filterCategory, 'waste')));
 
     const [filterStatus, setFilterStatus] = useState('all');
     const [filterCategory, setFilterCategory] = useState(initialCategory);
@@ -303,6 +308,37 @@ export const MapVisualizer = ({
                     );
                 })}
 
+                {/* LoRaWAN waste bins (Ubidots) */}
+                {siteBins.map((bin) => (
+                    <CircleMarker
+                        key={`bin-${bin.label}`}
+                        center={bin.coords}
+                        radius={bin.online ? 9 : 6}
+                        pathOptions={{ color: BIN_STATE_COLORS[bin.state] || '#94a3b8', fillColor: GROUP_COLORS.waste, fillOpacity: bin.online ? 0.85 : 0.35, weight: bin.state === 'critical' ? 4 : 2.5, className: 'pointer-events-auto' }}
+                        eventHandlers={{ click: () => !interactive && onNavigate && onNavigate('waste-management') }}
+                    >
+                        <Tooltip direction="top" offset={[0, -10]} opacity={1}>
+                            <div className="text-xs font-bold text-slate-700">{bin.name}</div>
+                            <div className="text-[10px] text-slate-500">{bin.fillPct !== null ? `${Math.round(bin.fillPct)} % full` : 'No level reading'}{bin.zoneName ? ` · ${bin.zoneName}` : ''}{bin.online ? '' : ' · offline'}</div>
+                        </Tooltip>
+                        {interactive && (
+                            <Popup>
+                                <div className="p-2 min-w-[210px]">
+                                    <h3 className="font-bold text-slate-800 text-sm">{bin.name}</h3>
+                                    <p className="text-[10px] text-slate-500 font-mono">{bin.label} · LoRaWAN via Ubidots</p>
+                                    <p className="text-lg font-bold text-slate-700 mt-2">{bin.fillPct !== null ? `${Math.round(bin.fillPct)} %` : '—'} <span className="text-xs font-normal text-slate-500">{bin.stateLabel}</span></p>
+                                    <p className="text-[11px] text-slate-500 mt-1">{bin.zoneName ? `${bin.zoneName} · ` : ''}last uplink {bin.lastSeen || 'unknown'}{bin.coordsSource !== 'device' ? ' · node GPS outside site, drawn at its block' : ''}</p>
+                                    {onNavigate && (
+                                        <button onClick={() => onNavigate('waste-management')} className="mt-2 w-full flex items-center justify-center gap-2 bg-amber-50 text-amber-700 hover:bg-amber-100 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                                            <Activity size={12} /> Open Waste Management
+                                        </button>
+                                    )}
+                                </div>
+                            </Popup>
+                        )}
+                    </CircleMarker>
+                ))}
+
                 {/* Registered digital-twin assets (sahrdayacps) */}
                 {filteredAssets.map((asset) => (
                     <CircleMarker
@@ -350,6 +386,7 @@ export const MapVisualizer = ({
                                 <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: GROUP_COLORS[group.id] }} />{group.label}
                             </span>
                         ))}
+                        <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-600"><span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: GROUP_COLORS.waste }} /> Waste bin</span>
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-600"><span className="w-2.5 h-2.5 rounded-full border-2 border-red-500 bg-white" /> Alert</span>
                         <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold text-slate-600"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-400/40 border border-indigo-500" /> {isCampus ? 'Block with sensors' : 'Area with sensors'}</span>
                     </div>
@@ -369,7 +406,7 @@ export const MapVisualizer = ({
                     </div>
                     <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)} className="w-full text-xs border-none bg-slate-50 rounded-lg px-2 py-1.5 text-slate-600 font-medium focus:ring-0 cursor-pointer hover:bg-slate-100">
                         <option value="all">All Types</option>
-                        {['energy', 'water', 'controls', 'agriculture', 'power', 'health', 'mobility', 'assistive_tech'].map((cat) => (
+                        {['energy', 'water', 'controls', 'agriculture', 'power', 'waste', 'health', 'mobility', 'assistive_tech'].map((cat) => (
                             <option key={cat} value={cat}>{cat === 'assistive_tech' ? 'Assistive Technology' : cat.charAt(0).toUpperCase() + cat.slice(1)}</option>
                         ))}
                     </select>

@@ -3,6 +3,7 @@ import { AlertCircle, AlertTriangle, CheckCircle2, Info, BrainCircuit, Gauge } f
 import { useVillageInsights } from '../../../hooks/useVillageInsights';
 import { useAssets } from '../../../hooks/useAssets';
 import { useParking } from '../../../hooks/useParking';
+import { useWasteBins } from '../../../hooks/useWasteBins';
 import { useVillageSensors } from '../../../hooks/useVillageSensors';
 import { whatsappLink, smsLink, buildAlertMessage, normalizePhone } from '../../../utils/alertChannels';
 
@@ -17,6 +18,7 @@ const GROUP_CHIP = {
     water: 'bg-cyan-100 text-cyan-700',
     energy: 'bg-amber-100 text-amber-700',
     parking: 'bg-rose-100 text-rose-700',
+    waste: 'bg-amber-100 text-amber-800',
     asset: 'bg-slate-100 text-slate-600'
 };
 
@@ -25,6 +27,7 @@ export const AlertsPanel = ({ onNavigate, className = '' }) => {
     const { assets } = useAssets();
     const { emergencyOccupied, stats: parkingStats, config: parkingConfig } = useParking();
     const { alertConfig } = useVillageSensors();
+    const { bins: wasteBins } = useWasteBins();
     const alertPhone = normalizePhone(alertConfig?.phone);
 
     const parkingAlerts = emergencyOccupied ? [{
@@ -49,7 +52,19 @@ export const AlertsPanel = ({ onNavigate, className = '' }) => {
             source: 'threshold'
         }));
 
-    const all = [...parkingAlerts, ...alerts, ...assetAlerts];
+    const wasteAlerts = wasteBins
+        .filter((bin) => bin.siteId === village?.id && (bin.state === 'critical' || (bin.state === 'warning' && bin.online)))
+        .map((bin) => ({
+            id: `waste-${bin.label}`,
+            severity: bin.state,
+            group: 'waste',
+            view: 'waste-management',
+            title: bin.state === 'critical' ? 'Waste bin nearly full' : 'Waste bin filling up',
+            message: `${bin.name}: ${Math.round(bin.fillPct ?? 0)} % full${bin.zoneName ? ` at ${bin.zoneName}` : ''}${bin.online ? '' : ' (last uplink ' + (bin.lastSeen || 'unknown') + ')'}.`,
+            source: 'threshold'
+        }));
+
+    const all = [...parkingAlerts, ...wasteAlerts, ...alerts, ...assetAlerts];
     const criticalCount = all.filter((a) => a.severity === 'critical').length;
 
     return (

@@ -214,7 +214,7 @@ const LOCATION_MAP_KEYS = new Set(['locations', 'sensorlocations', 'positions', 
 const CENTER_KEYS = new Set(['center', 'centre', 'location', 'position', 'gps']);
 const VILLAGE_CONTAINERS = ['villages', 'village', 'sites', 'data'];
 // Root keys that never hold village telemetry
-const RESERVED_ROOT_KEYS = new Set(['config', 'alerts', 'parking', 'emergency', 'categories', 'assets']);
+const RESERVED_ROOT_KEYS = new Set(['config', 'alerts', 'parking', 'emergency', 'categories', 'assets', 'waste']);
 
 const SITE_NAME_KEYS = new Set(SITES.flatMap((s) => [normKey(s.id), normKey(s.name), normKey(s.fullName || '')]).filter(Boolean));
 const CONTAINER_KEYS = new Set(VILLAGE_CONTAINERS.map(normKey));

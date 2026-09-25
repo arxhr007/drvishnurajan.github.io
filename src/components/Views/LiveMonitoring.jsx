@@ -1,8 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Activity, Wifi, Battery, Server, ArrowLeft, Clock, MapPin, User, Landmark, Gauge, Database, Radio, AlertCircle } from 'lucide-react';
+import { Activity, Wifi, Battery, Server, ArrowLeft, Clock, MapPin, User, Landmark, Gauge, Database, Radio, AlertCircle, Trash2 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useAssets } from '../../hooks/useAssets';
 import { useVillageSensors } from '../../hooks/useVillageSensors';
+import { useWasteBins } from '../../hooks/useWasteBins';
+import { WasteBinCard } from '../Shared/WasteBinCard';
 import { useAuth } from '../../context/AuthContext';
 import { formatTimeIST } from '../../utils/timeUtils';
 import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
@@ -695,6 +697,8 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
         readings, hasData, villagePath, villageUpdatedAt, sensorDbUrl, lastSyncAt, loading: sensorsLoading
     } = useVillageSensors();
     const campusSite = sites.find((s) => s.type === 'campus');
+    const { binsForSite, stats: binStats, fetchedAtLabel: binsFetchedAt, error: binsError } = useWasteBins();
+    const siteBins = binsForSite(selectedVillageId).filter((bin) => matchesFilter(bin.online));
 
     const [selectedAssetId, setSelectedAssetId] = useState(null);
     const [selectedMetricKey, setSelectedMetricKey] = useState(null);
@@ -733,8 +737,10 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
     const metricOnline = isLiveVillage ? metricList.filter((r) => r.value !== null && r.value !== undefined).length : 0;
     const metricOffline = isLiveVillage ? metricList.length - metricOnline : 0;
     const assetOnline = assets.filter((a) => a.status !== 'offline').length;
-    const onlineCount = metricOnline + assetOnline;
-    const offlineCount = metricOffline + (assets.length - assetOnline);
+    const allSiteBins = binsForSite(selectedVillageId);
+    const binOnline = allSiteBins.filter((bin) => bin.online).length;
+    const onlineCount = metricOnline + assetOnline + binOnline;
+    const offlineCount = metricOffline + (assets.length - assetOnline) + (allSiteBins.length - binOnline);
 
     const filteredAssets = assets.filter((a) => matchesFilter(a.status !== 'offline'));
 
@@ -861,6 +867,26 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
                         </>
                     ) : (
                         <PlannedVillageNotice village={selectedVillage} onSelectLive={() => setSelectedVillageId(DEFAULT_VILLAGE_ID)} />
+                    )}
+
+                    {allSiteBins.length > 0 && (
+                        <section>
+                            <div className="flex items-center gap-2 mb-3">
+                                <div className="w-7 h-7 rounded-lg border bg-amber-50 text-amber-700 border-amber-100 flex items-center justify-center">
+                                    <Trash2 size={14} />
+                                </div>
+                                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-600">Waste Bins · LoRaWAN</h3>
+                                <span className="text-xs text-slate-400">· {allSiteBins.length} bin{allSiteBins.length === 1 ? '' : 's'} via Ubidots{binsFetchedAt ? ` · polled ${binsFetchedAt}` : ''}</span>
+                                {binsError && <span className="text-xs text-red-500">· {binsError}</span>}
+                            </div>
+                            {siteBins.length > 0 ? (
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                                    {siteBins.map((bin) => <WasteBinCard key={bin.label} bin={bin} />)}
+                                </div>
+                            ) : (
+                                <p className="text-sm text-slate-400 py-4">No waste bins match the filter.</p>
+                            )}
+                        </section>
                     )}
 
                     {assets.length > 0 && (

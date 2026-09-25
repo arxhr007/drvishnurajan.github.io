@@ -266,10 +266,10 @@ export const WASTE_INCIDENT_FEED = [
 
 export const WASTE_COLLECTION_METHODS = [
     {
-        channel: 'Smart bin node mesh (fill, gas, temperature)',
-        coverage: 'All collection points',
-        cadence: '10 sec to 1 min stream',
-        owner: 'Waste IoT edge gateway'
+        channel: 'LoRaWAN smart bins → Ubidots (fill level, GPS)',
+        coverage: 'Campus bins (Bin #001 Bio Block live), villages next',
+        cadence: '~2 min uplink, dashboard polls every minute',
+        owner: 'Ubidots STEM public dashboard'
     },
     {
         channel: 'Fleet GPS and fuel telemetry',

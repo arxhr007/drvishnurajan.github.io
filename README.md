@@ -348,3 +348,25 @@ browsers. Warnings can be included with a checkbox.
 Browser-side calls are fire-and-forget (`no-cors`), so delivery is confirmed only through the relay. Critical
 alerts on the Overview also carry **Send on WhatsApp** / **Send as SMS** links for manual forwarding, and a
 **Send test alert** button is provided on the configuration page.
+
+
+### LoRaWAN waste bins (Ubidots)
+
+Smart bins report over LoRaWAN into Ubidots STEM. The dashboard reads the **public Ubidots dashboard**
+directly from the browser: it fetches the dashboard page, takes the short-lived public token embedded in it,
+and calls the Ubidots API (`/api/v2.0/devices`, `/variables`, `/api/v1.6/variables/<id>/values`) with
+`Authorization: Bearer`. Both endpoints allow cross-origin requests, so no relay or account key is needed;
+the token is refreshed automatically before it expires.
+
+- **Waste Management** shows every bin as a tank gauge with fill %, the node's own status word, last
+  uplink, fill-rate and hours-to-full from recent history, and folds live bins into the KPI, risk and
+  routing models beside the modelled bins.
+- **Live Monitoring** lists the bins of the selected site; **City Map** draws them (brown markers, red ring
+  when nearly full). A bin is attached to a site and block by its Ubidots name ("Bin #001 - bio block" →
+  Campus / Bio Block); override in Site & Alerts with placement key `ubidots~<device label>`. The node's
+  GPS is used only when it lies within 1.5 km of the site; otherwise the bin is drawn at its block.
+- A bin at or above the full threshold (default 85 %) raises a critical alert (Overview + mobile alerts).
+- Settings live in `config/ubidots`: `dashboardUrl`, `pollSeconds`, `historyPoints`,
+  `offlineAfterMinutes`, `fullAlertPct`, `enabled`.
+- A gateway may also write bins straight to the sensor database as `waste/bins/<label> = { name, fillPct,
+  status, lat, lng, timestamp }`; these merge with the Ubidots bins by label.

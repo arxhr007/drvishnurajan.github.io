@@ -46,6 +46,9 @@ import {
     estimateOverflowEtaHours
 } from '../../utils/wasteMetrics';
 import { CPS_AXIS_TICK, CPS_GRID_STYLE, CPS_PALETTE, CPS_TOOLTIP_STYLE } from './shared/CpsChartTheme';
+import { useWasteBins } from '../../hooks/useWasteBins';
+import { WasteBinCard } from '../Shared/WasteBinCard';
+import { ExternalLink, RefreshCw, Radio } from 'lucide-react';
 
 const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
@@ -132,7 +135,17 @@ const CPS_ACTION_LIBRARY = [
     }
 ];
 
-const getMonitoringProfile = (binId) => {
+const getMonitoringProfile = (binId, isLive = false) => {
+    if (isLive) {
+        return {
+            mode: 'lorawan',
+            dataSource: 'LoRaWAN uplink via Ubidots',
+            cadence: '~2 min uplink',
+            owner: 'Ubidots STEM (public dashboard)',
+            linkPath: 'LoRaWAN -> gateway -> Ubidots -> dashboard'
+        };
+    }
+
     if (EDGE_NODE_IDS.has(binId)) {
         return {
             mode: 'edge',
@@ -162,7 +175,38 @@ const getMonitoringProfile = (binId) => {
     };
 };
 
+// Shape a live LoRaWAN bin like the modelled bins so KPIs, risk and routing include it
+const liveBinToSensor = (bin) => {
+    const fill = bin.fillPct ?? 0;
+    const capacityKg = 120;
+    const ratePctPerHour = bin.fillRatePerHour && bin.fillRatePerHour > 0 ? bin.fillRatePerHour : 1.2;
+    return {
+        id: bin.label.toUpperCase(),
+        liveLabel: bin.label,
+        zone: bin.zoneName || bin.siteName || 'Campus',
+        wasteType: 'mixed',
+        fillPct: fill,
+        capacityKg,
+        currentLoadKg: Math.round((fill / 100) * capacityKg),
+        dailyGenerationKg: Math.round(Math.max(2, (ratePctPerHour / 100) * capacityKg * 24)),
+        segregationScore: 70,
+        contaminationPct: 15,
+        methanePpm: 0,
+        tempC: bin.tempC ?? 0,
+        odorIndex: 0,
+        batteryPct: bin.batteryPct ?? 100,
+        connectivity: bin.online ? 'online' : 'offline',
+        distanceFromHubKm: 0.5,
+        lastPickupHoursAgo: 12,
+        actuators: { compactor: false, scrubber: false, conveyor: false },
+        isLive: true,
+        liveState: bin.state,
+        lastSeen: bin.lastSeen
+    };
+};
+
 export const WasteManagement = () => {
+    const { bins: liveBins, stats: liveStats, loading: liveLoading, error: liveError, fetchedAtLabel, dashboardUrl, refresh } = useWasteBins();
     const [selectedZone, setSelectedZone] = useState('All Zones');
     const [timeWindow, setTimeWindow] = useState('24h');
     const [controlProfile, setControlProfile] = useState('balanced');
@@ -174,19 +218,21 @@ export const WasteManagement = () => {
         aiRouting: true
     });
 
+    const allBins = useMemo(() => [...liveBins.map(liveBinToSensor), ...WASTE_BIN_SENSORS], [liveBins]);
+
     const zones = useMemo(() => {
-        return ['All Zones', ...new Set(WASTE_BIN_SENSORS.map((bin) => bin.zone))];
-    }, []);
+        return ['All Zones', ...new Set(allBins.map((bin) => bin.zone))];
+    }, [allBins]);
 
     const activeProfile = WASTE_CONTROL_PROFILES[controlProfile] || WASTE_CONTROL_PROFILES.balanced;
 
     const filteredBins = useMemo(() => {
         const scope = selectedZone === 'All Zones'
-            ? WASTE_BIN_SENSORS
-            : WASTE_BIN_SENSORS.filter((bin) => bin.zone === selectedZone);
+            ? allBins
+            : allBins.filter((bin) => bin.zone === selectedZone);
 
         return scope.map((bin) => {
-            const monitoring = getMonitoringProfile(bin.id);
+            const monitoring = getMonitoringProfile(bin.id, bin.isLive);
             const compactionLift = simControls.compactorBoost ? activeProfile.compactionGainPct : 0;
             const scrubberLift = simControls.odorScrubber ? 7 : 0;
             const baselineMethane = bin.methanePpm;
@@ -208,7 +254,7 @@ export const WasteManagement = () => {
                 linkPath: monitoring.linkPath
             };
         });
-    }, [activeProfile, selectedZone, simControls.compactorBoost, simControls.odorScrubber]);
+    }, [activeProfile, allBins, selectedZone, simControls.compactorBoost, simControls.odorScrubber]);
 
     const collectionSeries = useMemo(() => {
         if (timeWindow === '12h') return WASTE_GENERATION_SERIES.slice(-6);
@@ -268,12 +314,14 @@ export const WasteManagement = () => {
         const offline = filteredBins.length - online;
         const edge = filteredBins.filter((bin) => bin.monitoringMode === 'edge').length;
         const delayed = filteredBins.filter((bin) => bin.monitoringMode === 'remote').length;
+        const lorawan = filteredBins.filter((bin) => bin.monitoringMode === 'lorawan').length;
 
         return {
             online,
             offline,
             edge,
-            delayed
+            delayed,
+            lorawan
         };
     }, [filteredBins]);
 
@@ -323,6 +371,7 @@ export const WasteManagement = () => {
                     </p>
                 </div>
                 <div className="flex items-center gap-2 text-xs text-slate-600 font-semibold uppercase tracking-wider">
+                    <span className="px-2 py-1 rounded-full bg-amber-100 text-amber-800">{monitoringStats.lorawan} LoRaWAN bin{monitoringStats.lorawan === 1 ? '' : 's'}</span>
                     <span className="px-2 py-1 rounded-full bg-green-100 text-green-700">{monitoringStats.online} nodes online</span>
                     <span className="px-2 py-1 rounded-full bg-cyan-100 text-cyan-700">{monitoringStats.edge} edge nodes</span>
                     <span className="px-2 py-1 rounded-full bg-slate-200 text-slate-700">{monitoringStats.delayed} long-range nodes</span>
@@ -330,6 +379,35 @@ export const WasteManagement = () => {
             </div>
 
             <DemoEncryptionNotice />
+
+            <DashboardCard title="Live LoRaWAN Bins · Ubidots">
+                <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+                    <p className="text-sm text-slate-600">
+                        Smart bins report their fill level over LoRaWAN to Ubidots; the dashboard polls the public Ubidots dashboard every minute and
+                        folds the bins into the risk, routing and KPI models below.
+                        {fetchedAtLabel ? ` Last poll ${fetchedAtLabel}.` : ''}
+                    </p>
+                    <div className="flex items-center gap-2">
+                        <span className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border ${liveError ? 'bg-red-50 text-red-600 border-red-200' : liveStats.online ? 'bg-green-50 text-green-600 border-green-200' : 'bg-amber-50 text-amber-700 border-amber-200'}`}>
+                            <Radio size={12} /> {liveError ? 'Ubidots unreachable' : `${liveStats.online}/${liveStats.total} online`}
+                        </span>
+                        <button onClick={refresh} className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border border-slate-200 bg-white hover:bg-slate-50" title="Poll Ubidots now">
+                            <RefreshCw size={12} className={liveLoading ? 'animate-spin' : ''} /> Refresh
+                        </button>
+                        <a href={dashboardUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium border border-slate-200 bg-white hover:bg-slate-50">
+                            <ExternalLink size={12} /> Ubidots dashboard
+                        </a>
+                    </div>
+                </div>
+                {liveError && <p className="text-xs text-red-600 mb-3">{liveError}. Check that the public dashboard link in Site &amp; Alerts is still valid.</p>}
+                {liveBins.length === 0 ? (
+                    <p className="text-sm text-slate-500">{liveLoading ? 'Contacting Ubidots…' : 'No bins found on the Ubidots dashboard yet.'}</p>
+                ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                        {liveBins.map((bin) => <WasteBinCard key={bin.label} bin={bin} />)}
+                    </div>
+                )}
+            </DashboardCard>
 
             <DashboardCard title="How Village Waste Data Is Collected">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">

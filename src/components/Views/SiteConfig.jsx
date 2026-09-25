@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { BellRing, MapPinned, Save, Send, Smartphone, Landmark, RotateCcw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useVillageSensors } from '../../hooks/useVillageSensors';
 import { useAlertDispatch } from '../../context/AlertDispatchContext';
+import { useWasteBins } from '../../hooks/useWasteBins';
 import { useAuth } from '../../context/AuthContext';
 import { DashboardCard } from '../Shared/DashboardCard';
 import { zonesOf, getSite, resolveZoneCenter } from '../../data/villages';
@@ -205,6 +206,92 @@ const ZonesCard = ({ canEdit }) => {
     );
 };
 
+// ── LoRaWAN waste bins (Ubidots) ─────────────────────────────────────────────
+const UbidotsCard = ({ canEdit }) => {
+    const { ubidotsConfig, saveUbidotsConfig, sites } = useVillageSensors();
+    const { bins, stats, error, fetchedAtLabel, refresh } = useWasteBins();
+    const [draft, setDraft] = useState(ubidotsConfig);
+    useEffect(() => { setDraft(ubidotsConfig); }, [ubidotsConfig]);
+    const dirty = JSON.stringify(draft) !== JSON.stringify(ubidotsConfig);
+    const saver = useSaver(async () => saveUbidotsConfig({
+        ...draft,
+        pollSeconds: Math.max(15, Number(draft.pollSeconds) || 60),
+        historyPoints: Math.max(2, Math.min(200, Number(draft.historyPoints) || 48)),
+        offlineAfterMinutes: Math.max(1, Number(draft.offlineAfterMinutes) || 30),
+        fullAlertPct: Math.max(1, Math.min(100, Number(draft.fullAlertPct) || 85))
+    }));
+
+    return (
+        <DashboardCard title="LoRaWAN waste bins (Ubidots)">
+            <div className="space-y-4">
+                <p className="text-sm text-slate-600">
+                    Bins publish over LoRaWAN into Ubidots. The dashboard reads the public Ubidots dashboard directly (no account key needed) and
+                    attaches each bin to a site and block by its name. To move a bin, add a placement row with key
+                    <span className="font-mono mx-1">ubidots~&lt;device label&gt;</span> in Sensor placement. Saved to <span className="font-mono">config/ubidots</span>.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label className={`${labelCls} md:col-span-2`}>
+                        Public dashboard link
+                        <input id="ubidots-url" type="url" value={draft.dashboardUrl || ''} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, dashboardUrl: e.target.value })} className={inputCls} placeholder="https://stem.ubidots.com/app/dashboards/public/dashboard/…" />
+                    </label>
+                    <label className={labelCls}>
+                        Poll every (seconds)
+                        <input id="ubidots-poll" type="number" min="15" max="3600" value={draft.pollSeconds} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, pollSeconds: Number(e.target.value) })} className={inputCls} />
+                    </label>
+                    <label className={labelCls}>
+                        History points per bin
+                        <input id="ubidots-history" type="number" min="2" max="200" value={draft.historyPoints} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, historyPoints: Number(e.target.value) })} className={inputCls} />
+                    </label>
+                    <label className={labelCls}>
+                        Offline after (minutes without uplink)
+                        <input id="ubidots-offline" type="number" min="1" max="10080" value={draft.offlineAfterMinutes} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, offlineAfterMinutes: Number(e.target.value) })} className={inputCls} />
+                    </label>
+                    <label className={labelCls}>
+                        Nearly-full alert at (%)
+                        <input id="ubidots-full" type="number" min="1" max="100" value={draft.fullAlertPct} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, fullAlertPct: Number(e.target.value) })} className={inputCls} />
+                    </label>
+                </div>
+                <div className="flex flex-wrap items-center gap-4">
+                    <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                        <input id="ubidots-enabled" type="checkbox" checked={!!draft.enabled} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+                        Poll Ubidots
+                    </label>
+                    <button onClick={refresh} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                        <RotateCcw size={13} /> Poll now
+                    </button>
+                    <span className={`text-xs ${error ? 'text-red-600' : 'text-slate-500'}`}>
+                        {error ? error : `${stats.online}/${stats.total} bin${stats.total === 1 ? '' : 's'} online${fetchedAtLabel ? ` · last poll ${fetchedAtLabel}` : ''}`}
+                    </span>
+                </div>
+                {bins.length > 0 && (
+                    <div className="overflow-x-auto -mx-2">
+                        <table className="w-full text-xs">
+                            <thead>
+                                <tr className="text-left text-slate-500 uppercase tracking-wider text-[10px]">
+                                    <th className="px-2 py-1">Device</th><th className="px-2 py-1">Name</th><th className="px-2 py-1 text-right">Fill</th><th className="px-2 py-1">Site / block</th><th className="px-2 py-1">Position</th><th className="px-2 py-1">Last uplink</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {bins.map((bin) => (
+                                    <tr key={bin.label} className="border-t border-slate-100">
+                                        <td className="px-2 py-1.5 font-mono text-[11px]">{bin.label}</td>
+                                        <td className="px-2 py-1.5">{bin.name}</td>
+                                        <td className="px-2 py-1.5 text-right font-mono">{bin.fillPct !== null ? `${Math.round(bin.fillPct)} %` : '—'}</td>
+                                        <td className="px-2 py-1.5">{sites.find((s) => s.id === bin.siteId)?.name || bin.siteId}{bin.zoneName ? ` / ${bin.zoneName}` : ''}{bin.placed ? <span className="ml-1 text-[9px] uppercase font-bold text-emerald-700">placed</span> : null}</td>
+                                        <td className="px-2 py-1.5 text-slate-500">{bin.coordsSource === 'device' ? 'node GPS' : bin.coordsSource === 'zone' ? `block (GPS ${bin.gpsDistanceKm !== null ? `${bin.gpsDistanceKm.toFixed(1)} km away` : 'missing'})` : 'site centre'}</td>
+                                        <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{bin.lastSeen || '—'}{bin.online ? '' : ' · offline'}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+                <SaveBar dirty={dirty && canEdit} saving={saver.saving} error={saver.error} ok={saver.ok} onSave={saver.run} onReset={() => setDraft(ubidotsConfig)} label="Save Ubidots settings" />
+            </div>
+        </DashboardCard>
+    );
+};
+
 // ── Mobile alerts ─────────────────────────────────────────────────────────────
 const AlertsCard = ({ canEdit }) => {
     const { alertConfig, saveAlertConfig } = useVillageSensors();
@@ -349,6 +436,7 @@ export const SiteConfig = () => {
 
             <PlacementCard canEdit={isAdmin} />
             <ZonesCard canEdit={isAdmin} />
+            <UbidotsCard canEdit={isAdmin} />
             <AlertsCard canEdit={isAdmin} />
 
             <div className="rounded-2xl border border-slate-200 bg-white/70 p-4 text-xs text-slate-500 flex items-start gap-2">

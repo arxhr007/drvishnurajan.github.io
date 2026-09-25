@@ -4,6 +4,7 @@ import { sensorDb } from '../firebase.config';
 import { useVillageSensors } from '../hooks/useVillageSensors';
 import { useVillageInsights } from '../hooks/useVillageInsights';
 import { useParking } from '../hooks/useParking';
+import { useWasteBins } from '../hooks/useWasteBins';
 import { buildAlertMessage, sendViaChannel, normalizePhone, formatPhone } from '../utils/alertChannels';
 import { getSite } from '../data/villages';
 
@@ -46,6 +47,7 @@ export const AlertDispatchProvider = ({ children }) => {
     const { villageData, alertConfig, selectedVillageId, loading } = useVillageSensors();
     const { insights, dataSource } = useVillageInsights();
     const { emergencyOccupied, stats: parkingStats, config: parkingConfig, loading: parkingLoading } = useParking();
+    const { bins: wasteBins } = useWasteBins();
 
     const lastSentRef = useRef({});
     const inFlightRef = useRef(new Set());
@@ -149,6 +151,17 @@ export const AlertDispatchProvider = ({ children }) => {
             });
         }
 
+        wasteBins.filter((bin) => bin.online && bin.state === 'critical').forEach((bin) => {
+            candidates.push({
+                key: `waste:${bin.label}:full`,
+                severity: 'critical',
+                siteId: bin.siteId,
+                metricKey: 'waste_bin',
+                title: 'Waste bin nearly full',
+                message: `${bin.name} is at ${Math.round(bin.fillPct)} %${bin.zoneName ? ` at ${bin.zoneName}` : ''}. Schedule collection.`
+            });
+        });
+
         const cooldownMs = Math.max(1, Number(alertConfig.cooldownMinutes) || 30) * 60 * 1000;
         const now = Date.now();
         candidates.forEach((c) => {
@@ -157,7 +170,7 @@ export const AlertDispatchProvider = ({ children }) => {
             if (lastTs && now - lastTs < cooldownMs) return;
             dispatch(c);
         });
-    }, [villageData, insights.alerts, emergencyOccupied, alertConfig, loading, parkingLoading, dataSource, selectedVillageId, parkingConfig.name, parkingStats.emergency, dispatch]);
+    }, [villageData, insights.alerts, emergencyOccupied, wasteBins, alertConfig, loading, parkingLoading, dataSource, selectedVillageId, parkingConfig.name, parkingStats.emergency, dispatch]);
 
     const sendTest = useCallback(() => dispatch({
         key: `test:${Date.now()}`,

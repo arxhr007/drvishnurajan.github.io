@@ -17,6 +17,7 @@ import { SplashScreen } from './components/Layout/SplashScreen';
 import { AssetsProvider } from './context/AssetsContext';
 import { VillageSensorsProvider } from './context/VillageSensorsContext';
 import { AlertDispatchProvider } from './context/AlertDispatchContext';
+import { WasteBinsProvider } from './context/WasteBinsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 
@@ -66,11 +67,13 @@ function AppContent() {
             {showSplash && <SplashScreen onComplete={() => setShowSplash(false)} />}
             <AssetsProvider>
                 <VillageSensorsProvider>
-                    <AlertDispatchProvider>
-                        <MainLayout activeView={activeView} setActiveView={setActiveView} onNavigate={handleNavigate}>
-                            {renderView()}
-                        </MainLayout>
-                    </AlertDispatchProvider>
+                    <WasteBinsProvider>
+                        <AlertDispatchProvider>
+                            <MainLayout activeView={activeView} setActiveView={setActiveView} onNavigate={handleNavigate}>
+                                {renderView()}
+                            </MainLayout>
+                        </AlertDispatchProvider>
+                    </WasteBinsProvider>
                 </VillageSensorsProvider>
             </AssetsProvider>
         </>
