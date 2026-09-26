@@ -220,6 +220,12 @@ export const VillageSensorsProvider = ({ children }) => {
                     lastUpdatedAt: lastChanged,
                     coords: hit?.coords ?? null,
                     ...zoneForReading(site, metric, hit, config.placement),
+                    // Other nodes publishing the same sensor (lower-priority database or a second node in the same tree)
+                    alternates: (normalized.alternates?.[metric.key] || []).map((alt) => {
+                        const altSourceId = parseSourcePath(alt.path).sourceId;
+                        const altSource = config.sources.find((s) => s.id === altSourceId);
+                        return { value: alt.value, raw: alt.raw, path: alt.path, sourceId: altSourceId, sourceLabel: altSource?.label || altSourceId, ...evaluateMetric(metric, alt.value), ...zoneForReading(site, metric, alt, config.placement) };
+                    }),
                     history: historyRef.current[historyKey] || []
                 };
             });
