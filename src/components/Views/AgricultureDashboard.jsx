@@ -241,6 +241,8 @@ export const AgricultureDashboard = () => {
     const agriMetrics = metricsForGroup('agriculture');
     const agriLive = agriMetrics.filter((m) => r[m.key]?.source === 'live').length;
     const fmtReading = (x) => (!x || x.value === null || x.value === undefined ? 'No data' : `${formatReading(x)} ${x.unit || ''}`.trim());
+    // Other nodes publishing the same sensor (e.g. the second agriculture node on rps-sahrdaya)
+    const altText = (x) => (x?.alternates?.length ? ` · other node${x.alternates.length > 1 ? 's' : ''}: ${x.alternates.map((a) => `${Math.round(a.value * 10) / 10} ${x.unit || ''}`.trim() + ` (${a.sourceId})`).join(', ')}` : '');
     const nodeFresh = !!lastNodeWriteAt && Date.now() - lastNodeWriteAt.getTime() < 10 * 60 * 1000;
 
     const liveTrend = useMemo(() => {
@@ -268,12 +270,12 @@ export const AgricultureDashboard = () => {
         {
             label: 'Temperature & Humidity', icon: Wind,
             value: r.temperature?.value !== null || r.humidity?.value !== null ? `${fmtReading(r.temperature)} · ${fmtReading(r.humidity)}` : 'No data',
-            detail: currentRisk === null ? 'Waiting for the weather node' : currentRisk >= 60 ? 'Fungal window open' : currentRisk >= 35 ? 'Fungal window building' : 'Outside the fungal window',
+            detail: (currentRisk === null ? 'Waiting for the weather node' : currentRisk >= 60 ? 'Fungal window open' : currentRisk >= 35 ? 'Fungal window building' : 'Outside the fungal window') + altText(r.temperature) + altText(r.humidity),
             source: r.temperature?.source, status: [r.temperature?.status, r.humidity?.status].includes('critical') ? 'critical' : [r.temperature?.status, r.humidity?.status].includes('warning') ? 'warning' : 'normal'
         },
         {
             label: 'Soil Moisture', icon: Droplets, value: fmtReading(r.soil_moisture),
-            detail: `${r.soil_moisture?.message || ''}${r.soil_moisture_raw?.value !== null && r.soil_moisture_raw?.value !== undefined ? ` · raw ADC ${Math.round(r.soil_moisture_raw.value)}` : ''}`,
+            detail: `${r.soil_moisture?.message || ''}${r.soil_moisture_raw?.value !== null && r.soil_moisture_raw?.value !== undefined ? ` · raw ADC ${Math.round(r.soil_moisture_raw.value)}` : ''}${altText(r.soil_moisture)}`,
             source: r.soil_moisture?.source, status: r.soil_moisture?.status
         },
         {

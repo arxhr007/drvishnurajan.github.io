@@ -429,3 +429,12 @@ dam respectively; swap the aliases in `sensorSchema.js` if the probes are the ot
   Enter the dry-air and in-water raw counts and enable the option to compute moisture from the raw value everywhere;
   the firmware figure is still shown beside it. Stored at `config/calibration/soil = { enabled, dryRaw, wetRaw }`.
 - Live Monitoring and Site & Alerts show the **last node write** time per database so a silent node is obvious.
+
+### Two nodes reporting the same sensor
+
+When more than one node publishes the same sensor for a site (today: an agriculture node in `rps-sahrdaya` and
+another in `rps-project-2`), the node from the highest-priority database is the headline value and every other
+node is listed as **"other node"** on the Live Monitoring card, in the sensor detail view and in the Agriculture
+page's Sensor State. To make a different node the headline, lower its database's priority number in
+Site & Alerts → Telemetry sources, or add the stale node's root key (e.g. `agriculture`) to the other database's
+*Ignore root keys*.

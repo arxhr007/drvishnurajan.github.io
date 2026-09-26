@@ -388,6 +388,17 @@ const MetricCard = ({ reading, onClick }) => {
                 <p className="text-xs text-slate-500 flex items-center gap-1 truncate" title={reading.message}>
                     <Wifi size={10} className="shrink-0" /> {reading.message}
                 </p>
+                {reading.alternates?.length > 0 && (
+                    <div className="mt-1.5 space-y-0.5">
+                        {reading.alternates.map((alt) => (
+                            <p key={alt.path} className="text-[11px] text-slate-600 flex items-center gap-1 truncate" title={alt.path}>
+                                <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${alt.status === 'critical' ? 'bg-red-500' : alt.status === 'warning' ? 'bg-amber-500' : 'bg-emerald-500'}`} />
+                                <span className="font-semibold">{reading.binary ? (alt.value ? 'ON' : 'OFF') : `${Math.round(alt.value * 100) / 100} ${reading.unit}`.trim()}</span>
+                                <span className="text-slate-400 truncate">· other node · {alt.sourceLabel}{alt.zoneName ? ` · ${alt.zoneName}` : ''}</span>
+                            </p>
+                        ))}
+                    </div>
+                )}
             </div>
         </div>
     );
@@ -523,6 +534,23 @@ const MetricDetailView = ({ metricKey, onBack }) => {
                                 <p className="text-sm font-medium text-slate-800">{describeRange(reading)}</p>
                             </div>
                         </div>
+
+                        {reading.alternates?.length > 0 && (
+                            <div className="p-3 bg-indigo-50/60 border border-indigo-100 rounded-xl">
+                                <p className="text-xs text-indigo-700 font-semibold uppercase mb-1">Other nodes reporting this sensor</p>
+                                {reading.alternates.map((alt) => (
+                                    <div key={alt.path} className="flex items-start justify-between gap-2 py-1 border-t border-indigo-100 first:border-t-0">
+                                        <div className="min-w-0">
+                                            <p className="text-sm font-bold text-slate-800">{reading.binary ? (alt.value ? 'ON' : 'OFF') : `${Math.round(alt.value * 100) / 100} ${reading.unit}`.trim()}</p>
+                                            <p className="text-[10px] text-slate-500 font-mono break-all">{alt.path}</p>
+                                            <p className="text-[10px] text-slate-500">{alt.sourceLabel}{alt.zoneName ? ` · ${alt.zoneName}` : ''} · {alt.message}</p>
+                                        </div>
+                                        <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase shrink-0 ${statusStyle(alt.status).badge}`}>{statusStyle(alt.status).label}</span>
+                                    </div>
+                                ))}
+                                <p className="text-[10px] text-slate-400 mt-1">The headline value comes from the highest-priority database. Change priorities or ignore a root key in Site &amp; Alerts → Telemetry sources to swap them.</p>
+                            </div>
+                        )}
 
                         <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
                             <div className="p-2 bg-slate-200 text-slate-600 rounded-lg">
