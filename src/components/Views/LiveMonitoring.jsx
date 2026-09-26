@@ -647,7 +647,7 @@ const UbaBanner = ({ villages, campus, selectedVillageId, onSelect }) => (
     </div>
 );
 
-const VillageSummaryCard = ({ village, villagePath, villageUpdatedAt, hasData, sensorDbUrl, lastSyncAt }) => (
+const VillageSummaryCard = ({ village, villagePath, villageUpdatedAt, hasData, sensorDbUrl, lastSyncAt, lastNodeWriteAt }) => (
     <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-md p-4 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="min-w-0">
             <div className="flex items-center gap-2">
@@ -656,7 +656,7 @@ const VillageSummaryCard = ({ village, villagePath, villageUpdatedAt, hasData, s
             </div>
             <p className="text-sm text-slate-500 mt-1">{village.description}</p>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs shrink-0">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs shrink-0">
             <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-[150px]">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Data node</p>
                 <p className="font-mono text-slate-800 truncate" title={sensorDbUrl}>
@@ -666,6 +666,10 @@ const VillageSummaryCard = ({ village, villagePath, villageUpdatedAt, hasData, s
             <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-[150px]">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Last sync</p>
                 <p className="text-slate-800 truncate">{lastSyncAt ? formatTimeIST(lastSyncAt) : 'waiting'}</p>
+            </div>
+            <div className={`rounded-xl border px-3 py-2 min-w-[150px] ${lastNodeWriteAt && Date.now() - lastNodeWriteAt.getTime() < 10 * 60 * 1000 ? 'bg-emerald-50 border-emerald-100' : 'bg-amber-50 border-amber-100'}`} title="Last time any field node changed a value in the sensor databases (since this page was opened)">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Last node write</p>
+                <p className="text-slate-800 truncate">{lastNodeWriteAt ? formatTimeIST(lastNodeWriteAt) : 'none since page opened'}</p>
             </div>
             <div className="rounded-xl bg-slate-50 border border-slate-100 px-3 py-2 min-w-[150px]">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Device timestamp</p>
@@ -698,7 +702,7 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
     const { assets, loading } = useAssets();
     const {
         sites, villages, selectedVillage, selectedVillageId, setSelectedVillageId,
-        readings, hasData, villagePath, villageUpdatedAt, sensorDbUrl, lastSyncAt, loading: sensorsLoading
+        readings, hasData, villagePath, villageUpdatedAt, sensorDbUrl, lastSyncAt, lastNodeWriteAt, loading: sensorsLoading
     } = useVillageSensors();
     const campusSite = sites.find((s) => s.type === 'campus');
     const { binsForSite, stats: binStats, fetchedAtLabel: binsFetchedAt, error: binsError, liveUrl: binsLiveUrl } = useWasteBins();
@@ -839,6 +843,7 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
                                 hasData={hasData}
                                 sensorDbUrl={sensorDbUrl}
                                 lastSyncAt={lastSyncAt}
+                                lastNodeWriteAt={lastNodeWriteAt}
                             />
 
                             {groupSections.map((section) => {

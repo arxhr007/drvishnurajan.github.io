@@ -108,6 +108,7 @@ const SourcesCard = ({ canEdit }) => {
                                         <td className="px-2 py-1.5"><input type="text" value={v.ignoreKeys} disabled={!canEdit} onChange={(e) => setRow(s.id, { ignoreKeys: e.target.value })} placeholder="e.g. Water, test" className="w-32 p-1 rounded border border-slate-200 bg-white text-[11px] disabled:bg-slate-50" /></td>
                                         <td className="px-2 py-1.5 whitespace-nowrap">
                                             <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${s.connected ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-600'}`}>{s.connected ? 'connected' : s.enabled ? 'no data' : 'off'}</span>
+                                            <p className="text-[10px] text-slate-500 mt-1">{s.lastChangeAt ? `node wrote ${formatTimeIST(s.lastChangeAt)}` : 'no node writes since page opened'}</p>
                                             {s.rootKeys.length > 0 && <p className="text-[10px] text-slate-400 mt-1 max-w-[180px] truncate" title={s.rootKeys.join(', ')}>{s.rootKeys.join(', ')}</p>}
                                         </td>
                                     </tr>

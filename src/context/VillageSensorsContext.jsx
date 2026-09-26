@@ -87,6 +87,17 @@ export const VillageSensorsProvider = ({ children }) => {
     const lastRef = useRef({});
     const liveSamplesRef = useRef({});
     const [liveSamples, setLiveSamples] = useState({});
+    // Per-database "node activity": last time the telemetry part of the root actually changed
+    const rootDigestRef = useRef({});
+    const [lastChangeAt, setLastChangeAt] = useState({});
+    const noteRootChange = useCallback((sourceId, root) => {
+        const telemetry = isObj(root) ? Object.fromEntries(Object.entries(root).filter(([k]) => !['config', 'alerts', 'waste'].includes(k))) : root;
+        const digest = JSON.stringify(telemetry);
+        if (rootDigestRef.current[sourceId] === digest) return;
+        const first = rootDigestRef.current[sourceId] === undefined;
+        rootDigestRef.current[sourceId] = digest;
+        if (!first) setLastChangeAt((prev) => ({ ...prev, [sourceId]: new Date() }));
+    }, []);
 
     const setSelectedVillageId = useCallback((id) => {
         if (!SITES.some((site) => site.id === id)) return;
@@ -103,6 +114,7 @@ export const VillageSensorsProvider = ({ children }) => {
     useEffect(() => {
         const unsubscribe = onValue(ref(sensorDb, '/'), (snapshot) => {
             const data = snapshot.val();
+            noteRootChange(PRIMARY_SOURCE_ID, data);
             setPrimaryRoot(data);
             setConfig(readConfig(data));
             setLoading(false);
@@ -120,6 +132,7 @@ export const VillageSensorsProvider = ({ children }) => {
     useEffect(() => {
         const extras = config.sources.filter((s) => !s.primary && s.enabled);
         const unsubs = extras.map((source) => onValue(ref(getSensorDatabase(source.url), '/'), (snap) => {
+            noteRootChange(source.id, snap.val());
             setExtraRoots((prev) => ({ ...prev, [source.id]: snap.val() }));
         }, (err) => {
             console.error(`Sensor source ${source.id} error:`, err);
@@ -313,8 +326,11 @@ export const VillageSensorsProvider = ({ children }) => {
     const sourceStatus = useMemo(() => config.sources.map((s) => ({
         ...s,
         connected: s.primary ? primaryRoot !== null : isObj(extraRoots[s.id]),
+        lastChangeAt: lastChangeAt[s.id] || null,
         rootKeys: isObj(s.primary ? primaryRoot : extraRoots[s.id]) ? Object.keys(s.primary ? primaryRoot : extraRoots[s.id]).filter((k) => !['config', 'alerts'].includes(k)) : []
-    })), [config.sources, primaryRoot, extraRoots]);
+    })), [config.sources, primaryRoot, extraRoots, lastChangeAt]);
+    // Most recent telemetry change across every database = "are the nodes alive?"
+    const lastNodeWriteAt = useMemo(() => Object.values(lastChangeAt).reduce((max, d) => (d && (!max || d > max) ? d : max), null), [lastChangeAt]);
 
     const value = useMemo(() => ({
         sites: SITES,
@@ -333,6 +349,7 @@ export const VillageSensorsProvider = ({ children }) => {
         markers,
         liveSamples,
         lastSyncAt,
+        lastNodeWriteAt,
         connected,
         loading,
         error,
@@ -355,7 +372,7 @@ export const VillageSensorsProvider = ({ children }) => {
         saveUbidotsConfig,
         saveSources,
         saveParkingSource
-    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, connected, loading, error, setMetricValue, sourceStatus, config, effectiveAlertConfig, parkingSource, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig, saveUbidotsConfig, saveSources, saveParkingSource]);
+    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, lastNodeWriteAt, connected, loading, error, setMetricValue, sourceStatus, config, effectiveAlertConfig, parkingSource, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig, saveUbidotsConfig, saveSources, saveParkingSource]);
 
     return (
         <VillageSensorsContext.Provider value={value}>
