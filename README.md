@@ -410,6 +410,7 @@ sensor's detail view (admins only). The dashboard writes back the same JSON type
 | Water Pump | `Watermanagement/relay_state` | tank / supply pump relay |
 | Irrigation Pump | `soilMoisturePump/relayState` | irrigation pump relay |
 | Irrigation Safety Cutoff | `soilMoisturePump/pumpSafetyCutoff` | when `true` the node keeps the irrigation pump locked off |
+| Lake Pump | `pumpControl/lakePump` | lake / intake pump relay; the dashboard creates the key (`false`) if the node has not written it yet |
 
 `Water/waterLevel` is read as the tank level and `Watermanagement/waterlevel1` / `waterlevel2` as tank /
 dam respectively; swap the aliases in `sensorSchema.js` if the probes are the other way round.

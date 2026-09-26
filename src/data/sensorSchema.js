@@ -15,6 +15,7 @@
 //
 //   Watermanagement/{ ph, rain, turbidity, waterlevel1, waterlevel2, relay_state }
 //   soilMoisturePump/{ soilMoisturePercent, relayState, pumpSafetyCutoff }
+//   pumpControl/{ lakePump }                      – lake pump relay (true/false)
 //   agriculture/{ soilMoisture, temperature, humidity }
 //   powerData/{ household | solar | windmill }/{ voltage, current, power }
 //   village/water_management/power_consumption/{ *_power, *_voltage, *_current }
@@ -83,12 +84,14 @@ export const SENSOR_METRICS = [
         key: 'irrigation_pump', group: 'agriculture', label: 'Irrigation Pump', unit: '', icon: 'Power', binary: true, controllable: true,
         aliases: ['irrigation_pump', 'irrigation_relay', 'soil_pump', 'soil_moisture_pump_relay', 'irrigation_pump_state'],
         onLabel: 'Running', offLabel: 'Stopped',
+        controlPath: 'soilMoisturePump/relayState', controlType: 'boolean',
         offset: [-0.0016, 0.0018], defaultZone: { village: 'pump_house', campus: 'bio_block' }
     },
     {
         key: 'pump_safety_cutoff', group: 'agriculture', label: 'Irrigation Safety Cutoff', unit: '', icon: 'ShieldAlert', binary: true, controllable: true,
         aliases: ['pump_safety_cutoff', 'pumpSafetyCutoff', 'safety_cutoff', 'pump_cutoff', 'irrigation_cutoff'],
         onLabel: 'Engaged – pump locked off', offLabel: 'Clear',
+        controlPath: 'soilMoisturePump/pumpSafetyCutoff', controlType: 'boolean',
         onStatus: 'warning',
         offset: [-0.0014, 0.0014], defaultZone: { village: 'pump_house', campus: 'bio_block' }
     },
@@ -132,7 +135,15 @@ export const SENSOR_METRICS = [
         key: 'pump', group: 'water', label: 'Water Pump', unit: '', icon: 'Power', binary: true, controllable: true,
         aliases: ['water_pump', 'pump_status', 'pump_state', 'water_pump_on_off', 'pump_on_off', 'motor', 'relay_state', 'relay', 'pump_relay', 'water_pump_relay', 'water_relay'],
         onLabel: 'Running', offLabel: 'Stopped',
+        controlPath: 'Watermanagement/relay_state', controlType: 'boolean',
         offset: [0.0020, 0.0012], defaultZone: { village: 'pump_house', campus: 'main_block' }
+    },
+    {
+        key: 'lake_pump', group: 'water', label: 'Lake Pump', unit: '', icon: 'Power', binary: true, controllable: true,
+        aliases: ['lake_pump', 'lakePump', 'lake_relay', 'lake_pump_state', 'lake_motor'],
+        onLabel: 'Running – drawing from the lake', offLabel: 'Stopped',
+        controlPath: 'pumpControl/lakePump', controlType: 'boolean',
+        offset: [-0.0010, -0.0034], defaultZone: { village: 'check_dam', campus: 'campus_grounds' }
     },
     {
         key: 'turbidity', group: 'water', label: 'Turbidity', unit: 'NTU', icon: 'Eye',
@@ -214,6 +225,11 @@ const CONTEXT_RULES = [
     ['soilmoisturepump', 'temperature', null],
     ['water', 'relaystate', 'pump'],
     ['tank', 'relaystate', 'pump'],
+    ['lake', 'relaystate', 'lake_pump'],
+    ['pumpcontrol', 'lakepump', 'lake_pump'],
+    ['pumpcontrol', 'tankpump', 'pump'],
+    ['pumpcontrol', 'waterpump', 'pump'],
+    ['pumpcontrol', 'irrigationpump', 'irrigation_pump'],
     ['household', 'power', 'household_power'], ['household', 'voltage', 'household_voltage'], ['household', 'current', 'household_current'],
     ['solar', 'power', 'solar_power'], ['solar', 'voltage', 'solar_voltage'], ['solar', 'current', 'solar_current'],
     ['wind', 'power', 'windmill_power'], ['wind', 'voltage', 'windmill_voltage'], ['wind', 'current', 'windmill_current']

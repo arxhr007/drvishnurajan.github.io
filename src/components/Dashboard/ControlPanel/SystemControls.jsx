@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Power, Activity, Settings2, AlertCircle, ShieldAlert, Droplets, Sprout } from 'lucide-react';
+import { Power, Activity, Settings2, AlertCircle, ShieldAlert, Droplets, Sprout, Waves } from 'lucide-react';
 import { useAssets } from '../../../hooks/useAssets';
 import { useAuth } from '../../../context/AuthContext';
 import { useVillageSensors } from '../../../hooks/useVillageSensors';
@@ -18,7 +18,7 @@ const Toggle = ({ isOn, disabled, busy, onToggle, title, tone = 'green' }) => (
     </button>
 );
 
-const CONTROL_ICONS = { pump: Droplets, irrigation_pump: Sprout, pump_safety_cutoff: ShieldAlert };
+const CONTROL_ICONS = { pump: Droplets, irrigation_pump: Sprout, pump_safety_cutoff: ShieldAlert, lake_pump: Waves };
 
 const ControlItem = ({ asset, onToggle, onClick, disabled }) => {
     const isOn = asset.status !== 'offline';
@@ -70,7 +70,9 @@ const ActuatorItem = ({ reading, siteName, onNavigate, disabled, busy, error, on
                     <p className="text-xs text-slate-500 truncate">
                         {reading.message}{reading.zoneName ? ` · ${reading.zoneName}` : ''}
                     </p>
-                    {reading.path && <p className="text-[10px] text-slate-400 font-mono truncate">{reading.path}</p>}
+                    {reading.path
+                        ? <p className="text-[10px] text-slate-400 font-mono truncate">{reading.path}</p>
+                        : reading.controlPath && <p className="text-[10px] text-amber-600 font-mono truncate">not published yet · will write {reading.controlPath}</p>}
                     {error && <p className="text-[11px] text-red-600 flex items-center gap-1 mt-0.5"><AlertCircle size={11} /> {error}</p>}
                 </div>
             </div>
@@ -95,10 +97,10 @@ export const SystemControls = ({ onNavigate, className = 'h-64' }) => {
     const [errors, setErrors] = useState({});
 
     const isLiveVillage = !!selectedVillage?.isLive;
-    // Only actuators the nodes actually publish (or the water pump, which the dashboard may create)
+    // Actuators the nodes publish, plus those with a known control key the dashboard can create
     const actuators = CONTROLLABLE_METRICS
         .map((metric) => effectiveReadings[metric.key])
-        .filter((reading) => reading && (reading.source === 'live' || reading.key === 'pump'));
+        .filter((reading) => reading && (reading.source === 'live' || reading.controlPath));
 
     const controllableAssets = assets.filter((a) => a.category === 'controls' || (a.category === 'energy' && a.flowType !== 'sensor'));
 

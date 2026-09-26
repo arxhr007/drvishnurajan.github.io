@@ -256,14 +256,24 @@ export const VillageSensorsProvider = ({ children }) => {
         const metric = SENSOR_METRICS.find((entry) => entry.key === metricKey);
         if (!metric) throw new Error(`Unknown metric: ${metricKey}`);
         const reading = villageData[siteId]?.readings?.[metricKey];
-        const { sourceId, path: rawPath } = parseSourcePath(reading?.path || defaultMetricPath(siteId, metric));
+        // Where to write: the path the node published > the metric's known control key on the
+        // highest-priority database (creates it if the node has not written it yet) > canonical layout.
+        let target;
+        if (reading?.path) target = parseSourcePath(reading.path);
+        else if (metric.controlPath) {
+            const preferred = config.sources.filter((s) => s.enabled).sort((a, b) => a.priority - b.priority)[0];
+            target = { sourceId: preferred ? preferred.id : PRIMARY_SOURCE_ID, path: metric.controlPath };
+        } else target = parseSourcePath(defaultMetricPath(siteId, metric));
+        const { sourceId, path: rawPath } = target;
         const source = config.sources.find((s) => s.id === sourceId);
         const database = source ? getSensorDatabase(source.url) : sensorDb;
         let path = rawPath;
         let payload = nextValue;
         if (metric.binary) {
             const raw = reading?.raw;
-            if (isObj(raw)) {
+            if (raw === null || raw === undefined) {
+                payload = metric.controlType === 'boolean' ? !!nextValue : metric.controlType === 'number' ? (nextValue ? 1 : 0) : (nextValue ? 'on' : 'off');
+            } else if (isObj(raw)) {
                 const innerKey = ['value', 'val', 'reading', 'state'].find((key) => raw[key] !== undefined) || 'value';
                 path = `${path}/${innerKey}`;
                 payload = typeof raw[innerKey] === 'boolean' ? !!nextValue : typeof raw[innerKey] === 'number' ? (nextValue ? 1 : 0) : (nextValue ? 'on' : 'off');
