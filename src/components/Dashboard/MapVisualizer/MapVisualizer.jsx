@@ -215,7 +215,7 @@ export const MapVisualizer = ({
     });
 
     const isCampus = site?.type === 'campus';
-    const isLiveSite = site?.deployment === 'live';
+    const isLiveSite = !!site?.isLive;
     const boundary = isCampus ? campusBoundary() : null;
     const mapCenter = villageCenter || VILLAGE_CENTER;
     const mapZoom = site?.zoom || 15;

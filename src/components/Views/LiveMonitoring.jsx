@@ -625,7 +625,7 @@ const UbaBanner = ({ villages, campus, selectedVillageId, onSelect }) => (
                     )}
                     {villages.map((village) => {
                         const active = village.id === selectedVillageId;
-                        const live = village.deployment === 'live';
+                        const live = !!village.isLive;
                         return (
                             <button
                                 key={village.id}
@@ -735,7 +735,7 @@ export const LiveMonitoring = ({ initialAssetId, initialMetricKey }) => {
         }
     }, [selectedVillageId]);
 
-    const isLiveVillage = selectedVillage?.deployment === 'live';
+    const isLiveVillage = !!selectedVillage?.isLive;
     const metricList = useMemo(() => Object.values(readings), [readings]);
 
     const matchesFilter = (isOnline) => filter === 'all' || (filter === 'online' ? isOnline : !isOnline);

@@ -1,13 +1,13 @@
 import React from 'react';
 import {
     Activity, ChevronDown, CloudRain, Cylinder, Droplets, Eye, FlaskConical, House, MapPin,
-    Power, Sprout, Sun, Thermometer, Waves, Wifi, WifiOff, Wind, Zap, ShieldAlert, Plug
+    Power, Sprout, Sun, Thermometer, Waves, Wifi, WifiOff, Wind, Zap, ShieldAlert, Plug, Gauge
 } from 'lucide-react';
 import { useVillageSensors } from '../../hooks/useVillageSensors';
 
 // Icon names referenced from src/data/sensorSchema.js
 export const METRIC_ICONS = {
-    Activity, CloudRain, Cylinder, Droplets, Eye, FlaskConical, House, Power, Sprout, Sun, Thermometer, Waves, Wind, Zap, ShieldAlert, Plug
+    Activity, CloudRain, Cylinder, Droplets, Eye, FlaskConical, House, Power, Sprout, Sun, Thermometer, Waves, Wind, Zap, ShieldAlert, Plug, Gauge
 };
 
 export const metricIcon = (name) => METRIC_ICONS[name] || Activity;
@@ -55,7 +55,7 @@ export const VillageSelector = ({ compact = false, className = '' }) => {
                 <optgroup label="UBA adopted villages">
                     {villages.map((village) => (
                         <option key={village.id} value={village.id}>
-                            {village.name}{village.deployment === 'live' ? ' · Live site' : ' · Planned'}
+                            {village.name}{village.isLive ? ' · Live site' : ' · Planned'}
                         </option>
                     ))}
                 </optgroup>
@@ -81,7 +81,7 @@ export const SensorConnectionBadge = ({ compact = false }) => {
         tone = 'bg-green-50 text-green-600 border-green-200';
         text = 'Live';
         Icon = Wifi;
-    } else if (connected && selectedVillage?.deployment === 'live') {
+    } else if (connected && selectedVillage?.isLive) {
         tone = 'bg-amber-50 text-amber-600 border-amber-200';
         text = 'Connected · awaiting data';
         Icon = Wifi;

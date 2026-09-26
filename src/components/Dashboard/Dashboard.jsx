@@ -33,7 +33,7 @@ const DataSourceBadge = ({ dataSource, liveCount }) => {
 export const Dashboard = ({ onNavigate }) => {
     const { village, dataSource, liveCount, insights } = useVillageInsights();
     const { villageUpdatedAt } = useVillageSensors();
-    const isLiveVillage = village?.deployment === 'live';
+    const isLiveVillage = !!village?.isLive;
 
     return (
         <div className="h-full overflow-y-auto pr-1 space-y-6 pb-6">

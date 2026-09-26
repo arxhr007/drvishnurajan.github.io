@@ -4,6 +4,13 @@ import { Activity, AlertTriangle, ArrowRight, Camera, CameraOff, CheckCircle2, D
 import { DashboardCard } from '../Shared/DashboardCard';
 import { DemoEncryptionNotice } from '../Shared/DemoEncryptionNotice';
 import { LiveSensorStrip } from '../Shared/LiveSensorStrip';
+import { useVillageInsights } from '../../hooks/useVillageInsights';
+import { useVillageSensors } from '../../hooks/useVillageSensors';
+import { useWasteBins } from '../../hooks/useWasteBins';
+import { formatReading } from '../Shared/SensorWidgets';
+import { metricsForGroup } from '../../data/sensorSchema';
+import { formatHourLabel } from '../../data/syntheticHistory';
+import { formatTimeIST } from '../../utils/timeUtils';
 import { ModelInsights } from '../Shared/ModelInsights';
 
 const PREDICTION_API_BASE = 'https://aaronthomas123-ice.hf.space';
@@ -102,14 +109,6 @@ const prettifyClassName = (raw = '') => {
     };
 };
 
-const dashboardTrend = [
-    { time: '06:00', health: 76, risk: 34, confidence: 81, alerts: 1 },
-    { time: '09:00', health: 78, risk: 38, confidence: 84, alerts: 1 },
-    { time: '12:00', health: 74, risk: 52, confidence: 87, alerts: 2 },
-    { time: '15:00', health: 71, risk: 61, confidence: 89, alerts: 2 },
-    { time: '18:00', health: 73, risk: 58, confidence: 91, alerts: 1 },
-    { time: '21:00', health: 75, risk: 49, confidence: 92, alerts: 1 }
-];
 
 const vasaHeatmap = [
     { node: 'NW', intensity: 18 },
@@ -154,54 +153,28 @@ const triModalEngine = [
     }
 ];
 
-const fieldNodes = [
-    { label: 'ESP32 Node', value: 'Online', tone: 'green' },
-    { label: 'MQTT Link', value: 'Stable', tone: 'blue' },
-    { label: 'VASA Array', value: 'Active', tone: 'violet' },
-    { label: 'Database Sync', value: 'Healthy', tone: 'cyan' }
-];
 
-const sensorStatus = [
-    { label: 'Temperature & Humidity', value: 'Stable', detail: 'Fungal window monitored', icon: Wind },
-    { label: 'Soil Moisture', value: 'Moderate', detail: 'No water stress spike', icon: Droplets },
-    { label: 'Leaf Wetness', value: 'Rising', detail: 'Early morning moisture detected', icon: Activity },
-    { label: 'VOC + Bio Response', value: 'Alerting', detail: 'Plant response increasing', icon: Eye }
-];
 
-const activeAlerts = [
-    {
-        title: 'High disease risk in central plots',
-        time: '10 min ago',
-        severity: 'Critical',
-        note: 'Humidity and leaf wetness suggest a 72-hour outbreak window.'
-    },
-    {
-        title: 'VASA acoustic cluster detected',
-        time: '18 min ago',
-        severity: 'Warning',
-        note: 'Source localized near Center node with strong AE intensity.'
-    },
-    {
-        title: 'Preventive action recommended',
-        time: '32 min ago',
-        severity: 'Advisory',
-        note: 'Reduce irrigation tonight and inspect affected zones tomorrow morning.'
-    }
-];
 
-const recommendedActions = [
-    'Reduce irrigation for the next night cycle.',
-    'Inspect the central field block for early visual lesions.',
-    'Check leaf underside for wetness and discolouration.',
-    'Watch the VASA center heat zone for new acoustic spikes.'
-];
 
-const quickFacts = [
-    { label: 'Forecast Window', value: '72 hrs' },
-    { label: 'VASA Coverage', value: 'Village wide' },
-    { label: 'Update Cycle', value: '15 min' },
-    { label: 'Fusion Confidence', value: '96%' }
-];
+
+const clampN = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+// Disease pressure from the weather station: humid + warm (+ rain) = fungal window
+const diseaseRisk = (hum, temp, rain) => {
+    if (hum === null || hum === undefined || temp === null || temp === undefined) return null;
+    let r = clampN((hum - 55) * 1.6, 0, 60);
+    if (temp >= 22 && temp <= 32) r += 20; else if (temp > 32 && temp <= 36) r += 8;
+    if (rain) r += 15;
+    return Math.round(clampN(r, 0, 100));
+};
+// Field health from soil water, heat and dry air (same weights as the agriculture model)
+const healthScore = (soil, temp, hum) => {
+    if (soil === null || soil === undefined) return null;
+    const dryness = clampN((30 - soil) / 25, 0, 1);
+    const heat = clampN(((temp ?? 28) - 30) / 10, 0, 1);
+    const dryAir = clampN((45 - (hum ?? 60)) / 25, 0, 1);
+    return Math.round(100 - 100 * (0.45 * dryness + 0.35 * heat + 0.2 * dryAir));
+};
 
 const StatCard = ({ label, value, unit, icon: Icon, tone = 'blue', subtext }) => {
     const tones = {
@@ -261,8 +234,95 @@ export const AgricultureDashboard = () => {
     const [predictionError, setPredictionError] = useState('');
     const [predictionResult, setPredictionResult] = useState(null);
 
-    const latest = dashboardTrend[dashboardTrend.length - 1];
-    const avgRisk = useMemo(() => dashboardTrend.reduce((sum, point) => sum + point.risk, 0) / dashboardTrend.length, []);
+    // ── Live field data (Firebase via the sensor context) ────────────────────
+    const { effectiveReadings: r, insights, alerts: allAlerts, hourly, dataSource } = useVillageInsights();
+    const { selectedVillage, lastNodeWriteAt, connected, sources } = useVillageSensors();
+    const { stats: binStats } = useWasteBins();
+    const agriMetrics = metricsForGroup('agriculture');
+    const agriLive = agriMetrics.filter((m) => r[m.key]?.source === 'live').length;
+    const fmtReading = (x) => (!x || x.value === null || x.value === undefined ? 'No data' : `${formatReading(x)} ${x.unit || ''}`.trim());
+    const nodeFresh = !!lastNodeWriteAt && Date.now() - lastNodeWriteAt.getTime() < 10 * 60 * 1000;
+
+    const liveTrend = useMemo(() => {
+        const slice = hourly.slice(-24);
+        return slice.filter((_, i) => i % 4 === 0 || i === slice.length - 1).map((s) => ({
+            time: formatHourLabel(s.ts),
+            health: healthScore(s.soil_moisture, s.temperature, s.humidity) ?? 0,
+            risk: diseaseRisk(s.humidity, s.temperature, s.rain_detected) ?? 0,
+            confidence: s.source === 'live' ? 95 : 60,
+            alerts: (diseaseRisk(s.humidity, s.temperature, s.rain_detected) ?? 0) >= 60 ? 1 : 0
+        }));
+    }, [hourly]);
+
+    const agriAlerts = useMemo(() => allAlerts.filter((a) => a.group === 'agriculture'), [allAlerts]);
+    const currentRisk = diseaseRisk(r.humidity?.value, r.temperature?.value, r.rain_detected?.value);
+    const latest = {
+        health: insights.agriculture.score,
+        risk: currentRisk ?? 0,
+        confidence: Math.round((100 * agriLive) / Math.max(1, agriMetrics.length)),
+        alerts: agriAlerts.length
+    };
+    const avgRisk = useMemo(() => (liveTrend.length ? liveTrend.reduce((sum, point) => sum + point.risk, 0) / liveTrend.length : 0), [liveTrend]);
+
+    const liveSensorStatus = [
+        {
+            label: 'Temperature & Humidity', icon: Wind,
+            value: r.temperature?.value !== null || r.humidity?.value !== null ? `${fmtReading(r.temperature)} · ${fmtReading(r.humidity)}` : 'No data',
+            detail: currentRisk === null ? 'Waiting for the weather node' : currentRisk >= 60 ? 'Fungal window open' : currentRisk >= 35 ? 'Fungal window building' : 'Outside the fungal window',
+            source: r.temperature?.source, status: [r.temperature?.status, r.humidity?.status].includes('critical') ? 'critical' : [r.temperature?.status, r.humidity?.status].includes('warning') ? 'warning' : 'normal'
+        },
+        {
+            label: 'Soil Moisture', icon: Droplets, value: fmtReading(r.soil_moisture),
+            detail: `${r.soil_moisture?.message || ''}${r.soil_moisture_raw?.value !== null && r.soil_moisture_raw?.value !== undefined ? ` · raw ADC ${Math.round(r.soil_moisture_raw.value)}` : ''}`,
+            source: r.soil_moisture?.source, status: r.soil_moisture?.status
+        },
+        {
+            label: 'Irrigation Zone Moisture', icon: Droplets, value: fmtReading(r.irrigation_zone_moisture),
+            detail: r.irrigation_zone_moisture?.value === null ? 'Irrigation node not reporting' : r.irrigation_zone_moisture.message,
+            source: r.irrigation_zone_moisture?.source, status: r.irrigation_zone_moisture?.status
+        },
+        {
+            label: 'Irrigation Pump', icon: Activity,
+            value: r.irrigation_pump?.value === null || r.irrigation_pump?.value === undefined ? 'No data' : r.irrigation_pump.value ? 'Running' : 'Stopped',
+            detail: r.pump_safety_cutoff?.value ? 'Safety cutoff engaged – pump locked off' : 'Safety cutoff clear',
+            source: r.irrigation_pump?.source, status: r.pump_safety_cutoff?.value ? 'warning' : 'normal'
+        },
+        {
+            label: 'Rain', icon: Wind,
+            value: r.rain_detected?.value !== null && r.rain_detected?.value !== undefined ? (r.rain_detected.value ? 'Raining' : 'Dry') : r.rain_intensity?.value !== null && r.rain_intensity?.value !== undefined ? `${Math.round(r.rain_intensity.value)} % index` : 'No data',
+            detail: r.rain_intensity?.message || 'Rain plate on the water node', source: r.rain_intensity?.source, status: r.rain_intensity?.status
+        },
+        { label: 'Leaf Wetness / VOC', icon: Eye, value: 'No sensor', detail: 'Not instrumented on the prototype yet', source: null, status: 'offline' }
+    ];
+
+    const liveActiveAlerts = agriAlerts.length ? agriAlerts.map((a) => ({
+        title: a.title, note: a.message, time: a.source === 'model' ? 'model' : 'threshold rule',
+        severity: a.severity === 'critical' ? 'Critical' : a.severity === 'warning' ? 'Warning' : 'Advisory'
+    })) : [{ title: 'No active agriculture alerts', note: dataSource === 'synthetic' ? 'No live agriculture node on this site – values shown are the synthetic baseline.' : 'All agriculture readings are inside their expected ranges.', time: 'now', severity: 'Advisory' }];
+
+    const liveRecommendedActions = [
+        ...(r.soil_moisture?.value !== null && r.soil_moisture?.value < 20 ? ['Soil is dry: start irrigation now.'] : []),
+        ...(r.soil_moisture?.value !== null && r.soil_moisture?.value > 80 ? ['Soil is water-logged: hold irrigation and check drainage.'] : []),
+        ...(currentRisk !== null && currentRisk >= 60 ? ['Fungal window open: scout the field for early lesions and avoid evening irrigation.'] : []),
+        ...(r.temperature?.value !== null && r.temperature?.value > 38 ? ['Heat stress: irrigate after sunset and provide shade where possible.'] : []),
+        ...(r.pump_safety_cutoff?.value ? ['Safety cutoff is engaged: inspect the irrigation pump before clearing it in System Controls.'] : []),
+        ...(insights.agriculture.predictions.find((p) => p.key === 'hours_to_dry' && typeof p.value === 'number' && p.value <= 12) ? [`Soil will reach the dry line in about ${insights.agriculture.predictions.find((p) => p.key === 'hours_to_dry').value} h – schedule irrigation.`] : [])
+    ];
+    if (!liveRecommendedActions.length) liveRecommendedActions.push('Conditions are stable: continue routine scouting and the current irrigation schedule.');
+
+    const liveFieldNodes = [
+        { label: 'ESP32 Node', value: nodeFresh ? 'Online' : lastNodeWriteAt ? `Stale (${formatTimeIST(lastNodeWriteAt)})` : agriLive ? 'Data present' : 'Offline', tone: nodeFresh ? 'green' : 'amber' },
+        { label: 'Firebase Link', value: connected ? 'Connected' : 'Disconnected', tone: connected ? 'blue' : 'amber' },
+        { label: 'Telemetry Sources', value: `${sources.filter((s) => s.connected).length}/${sources.length} databases`, tone: 'violet' },
+        { label: 'LoRaWAN Bins', value: `${binStats.online}/${binStats.total} online`, tone: 'cyan' }
+    ];
+
+    const liveQuickFacts = [
+        { label: 'Forecast Window', value: '12 hrs' },
+        { label: 'Live Sensors', value: `${agriLive}/${agriMetrics.length}` },
+        { label: 'Last Node Write', value: lastNodeWriteAt ? formatTimeIST(lastNodeWriteAt) : 'none yet' },
+        { label: 'Data Source', value: dataSource === 'live' ? 'Live' : dataSource === 'mixed' ? 'Live + baseline' : 'Synthetic baseline' }
+    ];
     const peakNode = useMemo(() => vasaHeatmap.reduce((max, item) => (item.intensity > max.intensity ? item : max), vasaHeatmap[0]), []);
 
     const handleLeafUpload = (event) => {
@@ -694,29 +754,33 @@ export const AgricultureDashboard = () => {
                     <div className="rounded-xl border border-slate-200 bg-white p-4">
                         <p className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Current fused result</p>
                         <div className="mt-2 flex items-center gap-2 text-slate-800 font-bold text-lg">
-                            <TriangleAlert size={18} className="text-rose-500" />
-                            High disease risk
+                            <TriangleAlert size={18} className={latest.risk >= 60 ? 'text-rose-500' : latest.risk >= 35 ? 'text-amber-500' : 'text-emerald-500'} />
+                            {latest.risk >= 60 ? 'High disease risk' : latest.risk >= 35 ? 'Moderate disease risk' : 'Low disease risk'}
                         </div>
-                        <p className="mt-2 text-sm text-slate-600">The combined tri-modal score is elevated and the dashboard shows a visible alert state.</p>
+                        <p className="mt-2 text-sm text-slate-600">
+                            {currentRisk === null
+                                ? 'Waiting for the weather node before a risk score can be computed.'
+                                : `Humidity ${fmtReading(r.humidity)} and temperature ${fmtReading(r.temperature)}${r.rain_detected?.value ? ' with rain' : ''} give a ${latest.risk}/100 disease pressure right now.`}
+                        </p>
                         <div className="mt-4 h-2 rounded-full bg-slate-200 overflow-hidden">
-                            <div className="h-full w-[96%] rounded-full bg-violet-500" />
+                            <div className={`h-full rounded-full ${latest.risk >= 60 ? 'bg-rose-500' : latest.risk >= 35 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${latest.risk}%` }} />
                         </div>
                     </div>
                 </div>
             </DashboardCard>
 
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                <StatCard label="Village Health Score" value={latest.health} unit="/100" icon={CheckCircle2} tone="green" subtext="Composite field state" />
-                <StatCard label="Disease Risk" value={latest.risk} unit="/100" icon={TriangleAlert} tone="rose" subtext="72-hour risk forecast" />
-                <StatCard label="Fusion Confidence" value={latest.confidence} unit="%" icon={Zap} tone="violet" subtext="Vision + environment + plant response" />
-                <StatCard label="Alerts Active" value={latest.alerts} unit="now" icon={AlertTriangle} tone="amber" subtext="Current visible alerts" />
+                <StatCard label="Field Health Score" value={latest.health} unit="/100" icon={CheckCircle2} tone="green" subtext={`${selectedVillage?.name} · soil, heat and dry-air stress`} />
+                <StatCard label="Disease Risk" value={latest.risk} unit="/100" icon={TriangleAlert} tone="rose" subtext={currentRisk === null ? 'Waiting for the weather node' : 'From live humidity, temperature and rain'} />
+                <StatCard label="Sensor Coverage" value={latest.confidence} unit="%" icon={Zap} tone="violet" subtext={`${agriLive} of ${agriMetrics.length} agriculture sensors live`} />
+                <StatCard label="Alerts Active" value={latest.alerts} unit="now" icon={AlertTriangle} tone="amber" subtext="Agriculture rules and model" />
             </div>
 
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                 <DashboardCard title="Live Trend and Risk">
                     <div className="h-72 min-h-[18rem]">
                         <ResponsiveContainer width="100%" height="100%">
-                            <LineChart data={dashboardTrend}>
+                            <LineChart data={liveTrend}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" vertical={false} />
                                 <XAxis dataKey="time" tick={{ fontSize: 11 }} stroke="#64748b" tickLine={false} axisLine={false} />
                                 <YAxis tick={{ fontSize: 11 }} stroke="#64748b" tickLine={false} axisLine={false} width={40} />
@@ -746,7 +810,7 @@ export const AgricultureDashboard = () => {
 
                 <DashboardCard title="Quick Facts">
                     <div className="grid grid-cols-2 gap-3">
-                        {quickFacts.map((item) => (
+                        {liveQuickFacts.map((item) => (
                             <div key={item.label} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
                                 <p className="text-xs uppercase tracking-wider text-slate-500 font-semibold">{item.label}</p>
                                 <p className="mt-1 text-lg font-bold text-slate-800">{item.value}</p>
@@ -787,20 +851,23 @@ export const AgricultureDashboard = () => {
 
                 <DashboardCard title="Sensor State">
                     <div className="space-y-3">
-                        {sensorStatus.map((item) => (
-                            <div key={item.label} className="rounded-xl border border-slate-200 bg-white p-3">
+                        {liveSensorStatus.map((item) => (
+                            <div key={item.label} className={`rounded-xl border p-3 ${item.status === 'critical' ? 'border-red-200 bg-red-50/60' : item.status === 'warning' ? 'border-amber-200 bg-amber-50/60' : 'border-slate-200 bg-white'}`}>
                                 <div className="flex items-center gap-2">
                                     <div className="w-9 h-9 rounded-lg bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
                                         <item.icon size={16} />
                                     </div>
-                                    <div>
-                                        <p className="text-sm font-semibold text-slate-800">{item.label}</p>
+                                    <div className="min-w-0">
+                                        <p className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+                                            {item.label}
+                                            {item.source && <span className={`text-[9px] uppercase font-bold px-1.5 py-0.5 rounded ${item.source === 'live' ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{item.source === 'live' ? 'Live' : 'Baseline'}</span>}
+                                        </p>
                                         <p className="text-xs text-slate-500">{item.detail}</p>
                                     </div>
                                 </div>
                                 <div className="mt-2 flex items-center justify-between gap-2">
-                                    <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Status</span>
-                                    <span className="text-sm font-bold text-slate-800">{item.value}</span>
+                                    <span className="text-xs uppercase tracking-wider text-slate-500 font-semibold">Reading</span>
+                                    <span className="text-sm font-bold text-slate-800 text-right">{item.value}</span>
                                 </div>
                             </div>
                         ))}
@@ -811,7 +878,7 @@ export const AgricultureDashboard = () => {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                 <DashboardCard title="Active Alerts" className="xl:col-span-2">
                     <div className="space-y-3">
-                        {activeAlerts.map((alert) => (
+                        {liveActiveAlerts.map((alert) => (
                             <div key={alert.title} className="rounded-xl border border-slate-200 bg-slate-50 p-4 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                                 <div className="min-w-0">
                                     <p className="text-sm font-bold text-slate-800">{alert.title}</p>
@@ -828,7 +895,7 @@ export const AgricultureDashboard = () => {
 
                 <DashboardCard title="Recommended Actions">
                     <div className="space-y-3">
-                        {recommendedActions.map((item) => (
+                        {liveRecommendedActions.map((item) => (
                             <div key={item} className="rounded-xl border border-green-200 bg-green-50 p-3 flex items-start gap-2 text-green-800">
                                 <CheckCircle2 size={16} className="mt-0.5 shrink-0" />
                                 <p className="text-sm">{item}</p>
@@ -841,7 +908,7 @@ export const AgricultureDashboard = () => {
             <div className="grid grid-cols-1 xl:grid-cols-3 gap-4">
                 <DashboardCard title="Field Node Status">
                     <div className="grid grid-cols-2 gap-3">
-                        {fieldNodes.map((node) => (
+                        {liveFieldNodes.map((node) => (
                             <div key={node.label} className="rounded-xl border border-slate-200 bg-white p-3">
                                 <p className="text-xs uppercase tracking-wider text-slate-500 font-semibold">{node.label}</p>
                                 <p className="mt-1 text-lg font-bold text-slate-800">{node.value}</p>
@@ -852,8 +919,8 @@ export const AgricultureDashboard = () => {
 
                 <DashboardCard title="System Flow Seen by User" className="xl:col-span-2">
                     <div className="space-y-3 text-sm text-slate-700">
-                        <p>1. The field node collects sensor readings and sends them through MQTT every 15 minutes.</p>
-                        <p>2. The backend validates the reading, updates the database, and runs the model pipeline.</p>
+                        <p>1. The ESP32 field node writes soil moisture, temperature and humidity to the Firebase Realtime Database as they change.</p>
+                        <p>2. Every open dashboard receives the change within about a second and runs the agriculture model in the browser.</p>
                         <p>3. The dashboard shows crop risk, VASA acoustic localization, and sensor confidence.</p>
                         <p>4. The user receives clear alert cards and practical recommendations for action.</p>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-2">

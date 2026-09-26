@@ -381,6 +381,46 @@ const UbidotsCard = ({ canEdit }) => {
     );
 };
 
+// ── Soil probe calibration ───────────────────────────────────────────────────
+const CalibrationCard = ({ canEdit }) => {
+    const { calibration, saveCalibration, readings } = useVillageSensors();
+    const [draft, setDraft] = useState(calibration.soil);
+    useEffect(() => { setDraft(calibration.soil); }, [calibration]);
+    const dirty = JSON.stringify(draft) !== JSON.stringify(calibration.soil);
+    const saver = useSaver(async () => saveCalibration({ enabled: !!draft.enabled, dryRaw: Number(draft.dryRaw), wetRaw: Number(draft.wetRaw) }));
+    const raw = readings.soil_moisture_raw?.value;
+    const preview = Number.isFinite(raw) && Number(draft.dryRaw) !== Number(draft.wetRaw)
+        ? Math.round(Math.min(100, Math.max(0, ((Number(draft.dryRaw) - raw) / (Number(draft.dryRaw) - Number(draft.wetRaw))) * 100)) * 10) / 10
+        : null;
+
+    return (
+        <DashboardCard title="Soil probe calibration">
+            <div className="space-y-4">
+                <p className="text-sm text-slate-600">
+                    The node publishes the probe's raw ADC count (<span className="font-mono">soilRaw</span>) beside its own percentage. If the firmware
+                    percentage looks wrong, enable this to compute moisture from the raw count instead: record the count with the probe in dry air and
+                    fully in water. The firmware value is still shown next to the calibrated one. Saved to <span className="font-mono">config/calibration/soil</span>.
+                </p>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <label className={labelCls}>Dry air raw count<input id="cal-dry" type="number" value={draft.dryRaw} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, dryRaw: Number(e.target.value) })} className={inputCls} /></label>
+                    <label className={labelCls}>In water raw count<input id="cal-wet" type="number" value={draft.wetRaw} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, wetRaw: Number(e.target.value) })} className={inputCls} /></label>
+                    <div className="rounded-xl bg-slate-50 border border-slate-100 p-3 text-xs text-slate-600">
+                        <p className="font-semibold uppercase tracking-wider text-[10px] text-slate-500">Live check</p>
+                        <p className="mt-1">Current raw: <b>{Number.isFinite(raw) ? Math.round(raw) : '—'}</b></p>
+                        <p>Firmware says: <b>{readings.soil_moisture?.reportedValue ?? (readings.soil_moisture?.derivedFrom ? '—' : readings.soil_moisture?.value ?? '—')} %</b></p>
+                        <p>Calibrated: <b>{preview ?? '—'} %</b></p>
+                    </div>
+                </div>
+                <label className="inline-flex items-center gap-2 text-sm text-slate-700">
+                    <input id="cal-enabled" type="checkbox" checked={!!draft.enabled} disabled={!canEdit} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+                    Use the calibrated value for Soil Moisture everywhere
+                </label>
+                <SaveBar dirty={dirty && canEdit} saving={saver.saving} error={saver.error} ok={saver.ok} onSave={saver.run} onReset={() => setDraft(calibration.soil)} label="Save calibration" />
+            </div>
+        </DashboardCard>
+    );
+};
+
 // ── Mobile alerts ─────────────────────────────────────────────────────────────
 const AlertsCard = ({ canEdit }) => {
     const { alertConfig, saveAlertConfig } = useVillageSensors();
@@ -526,6 +566,7 @@ export const SiteConfig = () => {
             <SourcesCard canEdit={isAdmin} />
             <PlacementCard canEdit={isAdmin} />
             <ZonesCard canEdit={isAdmin} />
+            <CalibrationCard canEdit={isAdmin} />
             <UbidotsCard canEdit={isAdmin} />
             <AlertsCard canEdit={isAdmin} />
 

@@ -12,7 +12,7 @@ export const LiveSensorStrip = ({ group, title }) => {
     const { selectedVillage, readings } = useVillageSensors();
     const groupMeta = SENSOR_GROUPS.find((entry) => entry.id === group);
     const metrics = metricsForGroup(group);
-    const isLive = selectedVillage?.deployment === 'live';
+    const isLive = !!selectedVillage?.isLive;
 
     return (
         <div className="rounded-2xl border border-slate-200 bg-white/80 backdrop-blur-md p-4 shadow-sm">

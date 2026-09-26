@@ -413,3 +413,18 @@ sensor's detail view (admins only). The dashboard writes back the same JSON type
 
 `Water/waterLevel` is read as the tank level and `Watermanagement/waterlevel1` / `waterlevel2` as tank /
 dam respectively; swap the aliases in `sensorSchema.js` if the probes are the other way round.
+
+### Live sites, the Agriculture page and soil calibration
+
+- A site is **live** when it is flagged so in `src/data/villages.js` **or** when any sensor is actually placed on it.
+  Puthenchira is now `planned` until its nodes are installed; placing a sensor on it in Site & Alerts makes it live.
+- On the first load of a browser session, if the remembered site has no data but another site does, the dashboard
+  switches to the live site once (so nobody is left looking at the synthetic baseline by accident).
+- The Agriculture page's Sensor State, Active Alerts, KPIs, trend, quick facts, recommended actions and field-node
+  status are driven by the live readings and the agriculture model; the leaf-disease image classifier is unchanged.
+  Leaf wetness and VOC show "No sensor" until such sensors exist.
+- **Soil probe calibration** (Site & Alerts): the node publishes the probe's raw ADC count as `soilRaw`. The two
+  databases report 100 % and 30 % moisture for the same raw count (2593), so the firmware percentage is unreliable.
+  Enter the dry-air and in-water raw counts and enable the option to compute moisture from the raw value everywhere;
+  the firmware figure is still shown beside it. Stored at `config/calibration/soil = { enabled, dryRaw, wetRaw }`.
+- Live Monitoring and Site & Alerts show the **last node write** time per database so a silent node is obvious.

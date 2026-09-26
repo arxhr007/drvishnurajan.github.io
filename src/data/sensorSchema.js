@@ -68,6 +68,12 @@ export const SENSOR_METRICS = [
         offset: [-0.0012, 0.0036], defaultZone: { village: 'weather_mast', campus: 'bio_block' }
     },
     {
+        key: 'soil_moisture_raw', group: 'agriculture', label: 'Soil Probe Raw', unit: 'ADC', icon: 'Gauge',
+        aliases: ['soilRaw', 'soil_raw', 'moisture_raw', 'soil_adc', 'soil_moisture_adc', 'soil_analog'],
+        informational: true,
+        offset: [-0.0016, 0.0024], defaultZone: { village: 'paddy_field', campus: 'bio_block' }
+    },
+    {
         key: 'irrigation_zone_moisture', group: 'agriculture', label: 'Irrigation Zone Moisture', unit: '%', icon: 'Droplets',
         aliases: ['irrigation_moisture', 'pump_zone_moisture', 'irrigation_soil_moisture'],
         range: { min: 20, max: 80, minMsg: 'Irrigation zone is dry', maxMsg: 'Irrigation zone is water-logged' },

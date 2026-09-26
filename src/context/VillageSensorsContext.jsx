@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ref, onValue, set, update } from 'firebase/database';
 import { sensorDb, getSensorDatabase, SENSOR_DB_URL } from '../firebase.config';
-import { SITES, VILLAGES, DEFAULT_SITE_ID, getSite, zonesOf, resolveZoneCenter } from '../data/villages';
+import { SITES, DEFAULT_SITE_ID, zonesOf, resolveZoneCenter } from '../data/villages';
 import {
     SENSOR_METRICS,
     evaluateMetric,
@@ -43,6 +43,15 @@ const readConfig = (root) => {
     const { apiKey: _ignoredKey, webhookUrl: _ignoredWebhook, ...sharedAlerts } = rawAlerts; // secrets never come from Firebase
     const sources = resolveSensorSources(cfg.sources).map((s) => (s.primary && !cfg.sources?.[s.id]?.site ? { ...s, site: prototypeSiteId } : s));
     const parkingSourceId = sources.some((s) => s.id === cfg.parkingSource) ? cfg.parkingSource : PRIMARY_SOURCE_ID;
+    // Optional dashboard-side soil calibration from the probe's raw ADC count (config/calibration/soil)
+    const soilCal = isObj(cfg.calibration) && isObj(cfg.calibration.soil) ? cfg.calibration.soil : {};
+    const calibration = {
+        soil: {
+            enabled: soilCal.enabled === true,
+            dryRaw: Number.isFinite(Number(soilCal.dryRaw)) ? Number(soilCal.dryRaw) : 3200,
+            wetRaw: Number.isFinite(Number(soilCal.wetRaw)) ? Number(soilCal.wetRaw) : 1400
+        }
+    };
     return {
         placement: isObj(cfg.sensorPlacement) ? cfg.sensorPlacement : {},
         prototypeSiteId,
@@ -52,8 +61,15 @@ const readConfig = (root) => {
         firebaseBins: isObj(root) && isObj(root.waste) && isObj(root.waste.bins) ? root.waste.bins : {},
         sources,
         sourceIgnoreKeys: Object.fromEntries(sources.map((s) => [s.id, Array.isArray(cfg.sources?.[s.id]?.ignoreKeys) ? cfg.sources[s.id].ignoreKeys : []])),
-        parkingSourceId
+        parkingSourceId,
+        calibration
     };
+};
+
+/** Percent moisture from a capacitive probe's raw ADC count (higher raw = drier). */
+const calibrateSoil = (raw, { dryRaw, wetRaw }) => {
+    if (!Number.isFinite(raw) || dryRaw === wetRaw) return null;
+    return Math.round(Math.min(100, Math.max(0, ((dryRaw - raw) / (dryRaw - wetRaw)) * 100)) * 10) / 10;
 };
 
 const zoneForReading = (site, metric, hit, placement) => {
@@ -168,8 +184,15 @@ export const VillageSensorsProvider = ({ children }) => {
             const liveValues = {};
             let villageChanged = false;
 
+            // Dashboard-side soil calibration: replace the firmware percent with one computed from the raw count
+            const rawSoil = normalized.readings.soil_moisture_raw?.value;
+            const calibratedSoil = config.calibration.soil.enabled && Number.isFinite(rawSoil) ? calibrateSoil(rawSoil, config.calibration.soil) : null;
+
             SENSOR_METRICS.forEach((metric) => {
-                const hit = normalized.readings[metric.key];
+                let hit = normalized.readings[metric.key];
+                if (metric.key === 'soil_moisture' && calibratedSoil !== null) {
+                    hit = { ...(hit || { path: normalized.readings.soil_moisture_raw.path, raw: rawSoil }), value: calibratedSoil, reportedValue: hit?.value ?? null, derivedFrom: 'raw' };
+                }
                 const value = hit ? hit.value : null;
                 const historyKey = `${site.id}:${metric.key}`;
                 const previous = lastRef.current[historyKey];
@@ -192,6 +215,7 @@ export const VillageSensorsProvider = ({ children }) => {
                     path: hit?.path ?? null,
                     sourceId: hit?.path ? parseSourcePath(hit.path).sourceId : null,
                     ...evaluateMetric(metric, value),
+                    ...(hit?.derivedFrom === 'raw' ? { derivedFrom: 'raw', reportedValue: hit.reportedValue, message: `${evaluateMetric(metric, value).message} · calibrated from raw ${Math.round(rawSoil)} (firmware reports ${hit.reportedValue ?? '—'} %)` } : {}),
                     lastUpdated: lastChanged ? formatTimeIST(lastChanged) : null,
                     lastUpdatedAt: lastChanged,
                     coords: hit?.coords ?? null,
@@ -264,8 +288,29 @@ export const VillageSensorsProvider = ({ children }) => {
         await set(ref(sensorDb, 'config/alerts'), shared);
     }, []);
 
+    // ── Live sites: flagged live, or actually receiving data ─────────────────
+    const liveSiteIds = useMemo(() => new Set(SITES.filter((s) => s.deployment === 'live' || villageData[s.id]?.hasData).map((s) => s.id)), [villageData]);
+    const sitesWithStatus = useMemo(() => SITES.map((s) => ({ ...s, isLive: liveSiteIds.has(s.id), hasData: !!villageData[s.id]?.hasData })), [liveSiteIds, villageData]);
+
+    // First load of a session: if the remembered site has no data but another one does, show the live one
+    const autoSwitchedRef = useRef(false);
+    useEffect(() => {
+        if (autoSwitchedRef.current || loading || !Object.keys(villageData).length) return;
+        autoSwitchedRef.current = true;
+        let already = false;
+        try { already = sessionStorage.getItem('gramvista.autoSwitched') === '1'; } catch { /* ignore */ }
+        if (already) return;
+        const current = villageData[selectedVillageId];
+        if (current?.hasData) return;
+        const live = SITES.find((s) => villageData[s.id]?.hasData);
+        if (live && live.id !== selectedVillageId) {
+            setSelectedVillageId(live.id);
+            try { sessionStorage.setItem('gramvista.autoSwitched', '1'); } catch { /* ignore */ }
+        }
+    }, [loading, villageData, selectedVillageId, setSelectedVillageId]);
+
     // ── Derived state for the selected site ──────────────────────────────────
-    const selectedVillage = useMemo(() => getSite(selectedVillageId) || getSite(DEFAULT_SITE_ID), [selectedVillageId]);
+    const selectedVillage = useMemo(() => sitesWithStatus.find((s) => s.id === selectedVillageId) || sitesWithStatus.find((s) => s.id === DEFAULT_SITE_ID), [sitesWithStatus, selectedVillageId]);
     const selectedEntry = useMemo(() => villageData[selectedVillageId] || emptyEntry(selectedVillage), [villageData, selectedVillageId, selectedVillage]);
     const villageCenter = selectedEntry.center || selectedVillage.center || null;
 
@@ -276,7 +321,7 @@ export const VillageSensorsProvider = ({ children }) => {
     }, [selectedVillage, selectedEntry, config.zoneOverrides]);
 
     const markers = useMemo(() => {
-        if (selectedVillage.deployment !== 'live' || !villageCenter) return [];
+        if (!selectedVillage.isLive || !villageCenter) return [];
         const perZone = {};
         SENSOR_METRICS.forEach((metric) => {
             const reading = selectedEntry.readings[metric.key];
@@ -332,9 +377,14 @@ export const VillageSensorsProvider = ({ children }) => {
     // Most recent telemetry change across every database = "are the nodes alive?"
     const lastNodeWriteAt = useMemo(() => Object.values(lastChangeAt).reduce((max, d) => (d && (!max || d > max) ? d : max), null), [lastChangeAt]);
 
+    const saveCalibration = useCallback(async (cfg) => { await set(ref(sensorDb, 'config/calibration/soil'), cfg); }, []);
+
     const value = useMemo(() => ({
-        sites: SITES,
-        villages: VILLAGES,
+        sites: sitesWithStatus,
+        villages: sitesWithStatus.filter((s) => s.type === 'village'),
+        liveSiteIds,
+        calibration: config.calibration,
+        saveCalibration,
         selectedVillage,
         selectedSite: selectedVillage,
         selectedVillageId,
@@ -372,7 +422,7 @@ export const VillageSensorsProvider = ({ children }) => {
         saveUbidotsConfig,
         saveSources,
         saveParkingSource
-    }), [selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, lastNodeWriteAt, connected, loading, error, setMetricValue, sourceStatus, config, effectiveAlertConfig, parkingSource, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig, saveUbidotsConfig, saveSources, saveParkingSource]);
+    }), [sitesWithStatus, liveSiteIds, saveCalibration, selectedVillage, selectedVillageId, setSelectedVillageId, villageData, selectedEntry, villageCenter, zones, markers, liveSamples, lastSyncAt, lastNodeWriteAt, connected, loading, error, setMetricValue, sourceStatus, config, effectiveAlertConfig, parkingSource, sensorPaths, savePlacement, savePrototypeSite, saveZoneOverrides, saveAlertConfig, saveUbidotsConfig, saveSources, saveParkingSource]);
 
     return (
         <VillageSensorsContext.Provider value={value}>

@@ -95,13 +95,13 @@ export const SITES = [
         id: 'puthenchira',
         name: 'Puthenchira',
         type: 'village',
-        deployment: 'live',
+        deployment: 'planned',
         center: [10.2659, 76.2369],
         zoom: 15,
         zones: VILLAGE_ZONES,
         description:
-            'First UBA deployment site. Agriculture, water-management and energy nodes validated on campus are ' +
-            'being installed here and stream to the same database.'
+            'First UBA deployment site. The nodes validated on campus will be installed here next; a sensor placed ' +
+            'on Puthenchira in Site & Alerts makes this site live automatically.'
     },
     {
         id: 'karumathra',

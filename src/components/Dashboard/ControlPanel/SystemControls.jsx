@@ -94,7 +94,7 @@ export const SystemControls = ({ onNavigate, className = 'h-64' }) => {
     const [busyKey, setBusyKey] = useState(null);
     const [errors, setErrors] = useState({});
 
-    const isLiveVillage = selectedVillage?.deployment === 'live';
+    const isLiveVillage = !!selectedVillage?.isLive;
     // Only actuators the nodes actually publish (or the water pump, which the dashboard may create)
     const actuators = CONTROLLABLE_METRICS
         .map((metric) => effectiveReadings[metric.key])
