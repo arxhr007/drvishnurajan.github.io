@@ -459,6 +459,7 @@ const convertValue = (metric, nk, raw) => {
  */
 export const normalizeVillageNode = (node, basePath = '', skip = null, accept = null, prefix = '') => {
     const readings = {};
+    const alternates = {};   // metricKey -> further readings of the same metric (other nodes in this tree)
     const locations = {};
     let updatedAt = null;
     let center = null;
@@ -474,17 +475,16 @@ export const normalizeVillageNode = (node, basePath = '', skip = null, accept = 
 
             if (metricKey) {
                 if (accept && !accept(childPath)) continue;
-                if (readings[metricKey] === undefined) { // first match wins
-                    const metric = METRIC_BY_KEY[metricKey];
-                    const entry = { value: convertValue(metric, nk, raw), raw, path: childPath };
-                    if (isPlainObject(raw)) {
-                        const ts = parseTimestamp(raw.timestamp ?? raw.updated_at ?? raw.updatedAt ?? raw.time ?? raw.ts);
-                        if (ts) entry.timestamp = ts;
-                        const coords = parseLatLng(raw.coords ?? raw.location ?? raw.position ?? raw);
-                        if (coords) entry.coords = coords;
-                    }
-                    readings[metricKey] = entry;
+                const metric = METRIC_BY_KEY[metricKey];
+                const entry = { value: convertValue(metric, nk, raw), raw, path: childPath };
+                if (isPlainObject(raw)) {
+                    const ts = parseTimestamp(raw.timestamp ?? raw.updated_at ?? raw.updatedAt ?? raw.time ?? raw.ts);
+                    if (ts) entry.timestamp = ts;
+                    const coords = parseLatLng(raw.coords ?? raw.location ?? raw.position ?? raw);
+                    if (coords) entry.coords = coords;
                 }
+                if (readings[metricKey] === undefined) readings[metricKey] = entry; // first match is the headline value
+                else if (entry.value !== null) (alternates[metricKey] = alternates[metricKey] || []).push(entry); // another node, same sensor
                 continue;
             }
 
@@ -511,18 +511,24 @@ export const normalizeVillageNode = (node, basePath = '', skip = null, accept = 
     };
 
     if (!isOfflineNode(node)) visit(node, basePath, 0, normKey(basePath.split('/').pop()));
-    return { readings, updatedAt, found: Object.keys(readings).length, locations, center };
+    return { readings, alternates, updatedAt, found: Object.keys(readings).length, locations, center };
 };
 
-/** Normalise and merge several sources (see resolveVillageSources); earlier sources win. */
+/**
+ * Normalise and merge several sources (see resolveVillageSources); earlier sources win the
+ * headline value, every later match of the same metric is kept in `alternates[metricKey]`.
+ */
 export const normalizeVillageSources = (sources) => {
-    const merged = { readings: {}, updatedAt: null, found: 0, locations: {}, center: null, path: null, paths: [] };
+    const merged = { readings: {}, alternates: {}, updatedAt: null, found: 0, locations: {}, center: null, path: null, paths: [] };
+    const addAlternate = (key, entry) => { if (entry && entry.value !== null) (merged.alternates[key] = merged.alternates[key] || []).push(entry); };
     sources.forEach((source) => {
         const part = normalizeVillageNode(source.node, source.path, source.skip || null, source.accept || null, source.prefix || '');
         let used = false;
         Object.entries(part.readings).forEach(([key, entry]) => {
             if (merged.readings[key] === undefined) { merged.readings[key] = entry; used = true; }
+            else if (entry.path !== merged.readings[key].path) { addAlternate(key, entry); used = true; }
         });
+        Object.entries(part.alternates).forEach(([key, list]) => list.forEach((entry) => addAlternate(key, entry)));
         Object.entries(part.locations).forEach(([key, coords]) => { if (!merged.locations[key]) merged.locations[key] = coords; });
         if (!merged.center && part.center) merged.center = part.center;
         if (part.updatedAt && (!merged.updatedAt || part.updatedAt > merged.updatedAt)) merged.updatedAt = part.updatedAt;
