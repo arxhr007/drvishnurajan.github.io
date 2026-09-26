@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ref, onValue, set, update } from 'firebase/database';
 import { sensorDb, getSensorDatabase, SENSOR_DB_URL } from '../firebase.config';
-import { SITES, DEFAULT_SITE_ID, zonesOf, resolveZoneCenter } from '../data/villages';
+import { SITES, DEFAULT_SITE_ID, getSite, zonesOf, resolveZoneCenter } from '../data/villages';
 import {
     SENSOR_METRICS,
     evaluateMetric,
